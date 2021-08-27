@@ -51,6 +51,48 @@ def plot_linear_reg(x_true, y_true, x, y, reg_pred):
     plt.savefig('figures/results/single_output_linearreg.png')
 
 
+def loocv(x, x_true, y):
+    """ Leave-one-out cross-validation to compare model performances
+    For each input data point, remove it from training data, then:
+        Optimize hyperparameters of specified kernel 
+        Derive posterior distribution with optimized parameters
+        Obtain prediction for left-out data point
+    
+    Parameters:
+    x : array N x 1
+        Training data input
+    x_s : array N x 1
+        Test data input 
+    f : array N x 1
+        Training data output
+
+    Returns:
+    predictions : list
+        List of predictions of left-out training data points    
+    l2dist : float
+        Distance of predictions to true training data output
+    """
+    predictions = []
+    N = len(x) - 1
+    for leave_out in range(N+1):
+        x_new = np.delete(x, leave_out).reshape(-1,1)
+        y_new = np.delete(y, leave_out).reshape(-1,1)
+
+        reg, pred = linear_reg(x_new, y_new, x_true)        
+
+        #print(pred)
+
+        # prediction for left out data point
+        idx_pred = np.absolute(x_true-x[leave_out]).argmin()
+        #print(idx_pred)
+        predictions.append(pred.item(idx_pred))
+
+    l2dist = np.linalg.norm(y.reshape(1,-1) - predictions)
+
+    return predictions, l2dist
+
+
+
 def main():
     # import data
     [x_true,y_true], [x,y] = create_single_output()
@@ -61,6 +103,10 @@ def main():
     l2dist = np.linalg.norm(y.reshape(1,-1) - reg.predict(x))
     print('L2 distance: ', l2dist)
     print('Predictions: ', reg.predict(x))
+
+    p, l = loocv(x, x_true, y)
+    print(p)
+    print(l)
 
 
 if __name__ == "__main__":

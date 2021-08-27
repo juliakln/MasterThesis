@@ -69,18 +69,33 @@ def kernel_periodic(x, y, param):
     #return variance * np.exp((-(2*np.sin(np.dot(np.pi/period, np.linalg.norm((x.reshape(-1,1)-y.reshape(-1,1)), ord=1)))) /(lengthscale))**2)
     return variance * np.exp(-(2*np.sin((np.pi * (x - y.T))/period)**2)/ (lengthscale**2))
 
-def kernel_mult(x, y, param):
+def kernel_mult_r_l(x, y, param):
     """ Multiply RBF and Linear Kernel
     """
     return kernel_rbf(x, y, param) * kernel_linear(x, y, param)
 
-def kernel_mult2(x, y, param):
-    """ Multiply RBF and Linear Kernel
+def kernel_mult_p_l(x, y, param):
+    """ Multiply Periodic and Linear Kernel
     """
     return kernel_periodic(x, y, param) * kernel_linear(x, y, param)
 
-def kernel_add(x, y, param):
+def kernel_mult_p_r(x, y, param):
+    """ Multiply Periodic and RBF Kernel
+    """
+    return kernel_periodic(x, y, param) * kernel_rbf(x, y, param)
+
+def kernel_add_r_l(x, y, param):
     """ Add RBF and Linear Kernel
     """
     return kernel_rbf(x, y, param) + kernel_linear(x, y, param)
+
+def kernel_add_p_l(x, y, param):
+    """ Multiply Periodic and Linear Kernel
+    """
+    return kernel_periodic(x, y, param) + kernel_linear(x, y, param)
+
+def kernel_add_p_r(x, y, param):
+    """ Multiply Periodic and RBF Kernel
+    """
+    return kernel_periodic(x, y, param) + kernel_rbf(x, y, param)
 
