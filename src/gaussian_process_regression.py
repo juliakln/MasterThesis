@@ -1,18 +1,27 @@
 """
 Gaussian Process Regression for single value output
+
+1) Predict values from random function
+
+2) Predict mean from histogram
+
+3) Predict variance from histogram
+
 """
 
 import sys
 import warnings
+from numpy.core.fromnumeric import reshape
 warnings.filterwarnings("ignore")
 import matplotlib.pyplot as plt
 import numpy as np
 from create_data import *
 from kernels import *
 from scipy.optimize import minimize
-import itertools
+#import itertools
 
 
+""" Global Parameters """
 
 # define all hyperparameters for all kernels
 params = {'var':   0.5,
@@ -22,8 +31,11 @@ params = {'var':   0.5,
           'per':   2}
 
 # define all kernels
-all_kernels = [kernel_linear, kernel_rbf, kernel_periodic, kernel_add_p_l, kernel_add_p_r, kernel_add_r_l,
+all_kernels = [kernel_linear, kernel_rbf, kernel_periodic, kernel_add_p_r, kernel_add_r_l,
               kernel_mult_p_l, kernel_mult_p_r, kernel_mult_r_l]
+
+
+""" Helper Functions """
 
 def create_test_data(N_s: int = 50, start: int = 0, end: int = 15):
     """ Create test set as N_s points from start to end 
@@ -31,28 +43,58 @@ def create_test_data(N_s: int = 50, start: int = 0, end: int = 15):
     x_s = np.linspace(start, end, N_s).reshape(-1,1)
     return x_s
 
-def get_prior(kernel = kernel_rbf, x_s = np.array):
-    """ Compute mean and covariance of test set using kernel to define Prior
+def comp_mean(freq, obs):
+    """ Compute mean value of hisogtram with frequencies freq, and observations obs
+    Frequencies must be fractions, not integers!
+    """
+    return np.sum(freq * obs)
+
+def comp_sd(freq, obs, mu):
+    """ Compute standard deviation of histogram with frequencies freq, observations obs, and mean value mu
+    Frequencies must be fractions, not integers!
+    """
+    return np.sqrt(np.sum(freq * (obs - mu)**2))
+
+def comp_margin(t, sd, N):
+    """ Compute margin of error for mean of histogram with t-value t, standard deviation sd, and sample size N
+    """
+    return t * (sd / np.sqrt(N))
+
+
+
+""" Analyses """
+
+def prior(kernel = kernel_rbf, x_s = np.array, plot = True, name = 'single'):
+    """ Compute mean and covariance of test set to define Prior
+
+    Parameters:
+    kernel : function
+        Kernel function to compute covariance matrix
+    x_s : array N x 1
+        Test data input
+    plot : boolean
+        If true, then sample 5 normals from GP prior and save figures
+    name : string
+        Name under which figures are saved
+
+    Returns mean and covariance
     """
     mu_prior = np.zeros(x_s.shape)
-    cov_prior = kernel(x_s, x_s, params)
+    cov_prior = kernel(x_s, x_s, params)    
+    if plot:
+        f_prior = np.random.multivariate_normal(mu_prior.ravel(), cov_prior, 5)
+        plt.figure(figsize=(12,6))
+        for sample in f_prior:
+            plt.plot(x_s, sample, lw=1.5, ls='-')
+        plt.title(f'{name} output - Prior using {kernel.__name__}')
+        plt.xlabel('x')
+        plt.ylabel('f')
+        plt.tight_layout()        
+        plt.savefig(f'figures/results/{name}_output_gpr_prior_{kernel.__name__}.png')
     return mu_prior, cov_prior
 
-def plot_prior(name = 'single', kernel = kernel_rbf, x_s = np.array):
-    """ Sample 5 normals from GP prior and plot
-    """
-    mu_prior, cov_prior = get_prior(kernel, x_s)
-    f_prior = np.random.multivariate_normal(mu_prior.ravel(), cov_prior, 5)
-    plt.figure(figsize=(12,6))
-    for sample in f_prior:
-        plt.plot(x_s, sample, lw=1.5, ls='-')
-    plt.title(f'{name} output - Prior using {kernel.__name__}')
-    plt.xlabel('x')
-    plt.ylabel('f')
-    plt.tight_layout()        
-    plt.savefig(f'figures/results/{name}_output_gpr_prior_{kernel.__name__}.png')
 
-def get_posterior(x, x_s, f, kernel = kernel_rbf, params = params, noise = 1e-2):
+def posterior(x, x_s, f, kernel = kernel_rbf, params = params, noise = 1e-15, optimized = True, plot = True, name = "single"):
     """ Derive Posterior Distribution using Equation (1)
     
     Parameters:
@@ -66,55 +108,74 @@ def get_posterior(x, x_s, f, kernel = kernel_rbf, params = params, noise = 1e-2)
         Kernel function to compute covariance matrix
     params : dictionary
         Hyperparameters for kernel functions
-    noise : float (default 1e-2)
-        Noise to ensure that the matrix is not singular
+    noise : float (default 1e-15)
+        Noise that is added to data points (margins of error)
+    optimized : boolean
+        If true, optimize hyperparameters of kernel before deriving the posterior distribution
+    plot : boolean
+        If true, sample 5 normals from GP and plot with mean function and uncertainty
+    name : string
+        Name under which figures are saved
         
-    Returns:
-    mu_s : array N x 1 
-        Mean vector of posterior distribution
-    sigma_s : array N x N 
-        Covariance matrix of posterior distribution
+    Returns: mean vector and covariance matrix of posterior distribution
     """
+
+    if optimized:
+        res = minimize(nll(x, f, kernel=kernel, noise=noise), [1, 1, 1, 1, 1],
+                    bounds=((1e-2, None), (1e-2, None), (1e-2, None), (1e-2, None), (1e-2, None)),
+                    method='L-BFGS-B')
+        # take optimized parameters for deriving posterior distribution
+        var_opt, ell_opt, var_b_opt, off_opt, per_opt = res.x
+        params = {'var': var_opt,
+                'ell': ell_opt,        
+                'var_b': var_b_opt,
+                'off': off_opt,
+                'per': per_opt}
+        
     N, N_s = len(x), len(x_s)
-    cov = kernel(x, x, params) + noise**2 * np.eye(N)
-    cov_s = kernel(x, x_s, params) + 1e-5 * np.eye(N,N_s)
-    cov_ss = kernel(x_s, x_s, params) + 1e-5 * np.eye(N_s)
+    cov = kernel(x, x, params) + noise * np.eye(N)
+    cov_s = kernel(x, x_s, params) 
+    cov_ss = kernel(x_s, x_s, params) 
     
-    mu_s = cov_s.T.dot(np.linalg.inv(cov)).dot(f)
-    sigma_s = cov_ss - cov_s.T.dot(np.linalg.inv(cov)).dot(cov_s)
+    # Cholesky decomposition for numerical stability of matrix inversion
+    L = np.linalg.cholesky(cov + 1e-5 * np.eye(N))
+    alpha_1 = np.linalg.solve(L, f)
+    alpha = np.linalg.solve(L.T, alpha_1)
+    mu_s = cov_s.T.dot(alpha)
     
+    v = np.linalg.solve(L, cov_s)
+    sigma_s = cov_ss - v.T.dot(v)
+
+
+    if plot:
+        x_s = x_s.ravel()
+        mu = mu_s.ravel()
+        cov = sigma_s
+        uncertainty = 1.96 * np.sqrt(np.diag(cov))
+
+        samples = np.random.multivariate_normal(mu, cov, 5)
+            
+        plt.figure(figsize=(12, 6))
+        plt.fill_between(x_s, mu + uncertainty, mu - uncertainty, alpha=0.2)
+        plt.plot(x_s, mu, '--', color='darkblue', lw=3, label='Mean')
+        for i, sample in enumerate(samples):
+            plt.plot(x_s, sample, lw=1.5)
+        if x is not None:
+            plt.plot(x, f, 'o', ms=8, color='darkblue')
+        plt.legend()
+        plt.title(f'{name} output - Posterior using {kernel.__name__}')
+        plt.xlabel('x')
+        plt.ylabel('f')
+        plt.tight_layout()        
+        plt.savefig(f'figures/results/{name}_output_gpr_posterior_{kernel.__name__}.png')
+
     return mu_s, sigma_s
 
-def plot_posterior(name, x, x_s, f, kernel=kernel_rbf, noise = 1e-2):
-    """ Plot GP with mean function & uncertainty
-    Adapted from: https://github.com/krasserm/bayesian-machine-learning/blob/dev/gaussian-processes/gaussian_processes_util.py
-    
-    Compute Posterior, sample 5 normals from GP and plot
-    """
-    mu, cov = get_posterior(x, x_s, f, kernel, params, noise)
-    x_s = x_s.ravel()
-    mu = mu.ravel()
-    uncertainty = 1.96 * np.sqrt(np.diag(cov))
-
-    samples = np.random.multivariate_normal(mu, cov, 5)
-        
-    plt.figure(figsize=(12, 6))
-    plt.fill_between(x_s, mu + uncertainty, mu - uncertainty, alpha=0.2)
-    plt.plot(x_s, mu, '--', color='darkblue', lw=3, label='Mean')
-    for i, sample in enumerate(samples):
-        plt.plot(x_s, sample, lw=1.5)
-    if x is not None:
-        plt.plot(x, f, 'o', ms=8, color='darkblue')
-    plt.legend()
-    plt.title(f'{name} output - Posterior using {kernel.__name__}')
-    plt.xlabel('x')
-    plt.ylabel('f')
-    plt.tight_layout()        
-    plt.savefig(f'figures/results/{name}_output_gpr_posterior_{kernel.__name__}.png')
 
 
 def nll(x, f, kernel=kernel_rbf, noise=1e-2):
-    """ Compute negative log marginal likelihood, naive implementation of Equation (2)
+    """ Compute negative log marginal likelihood, naive implementation of Equation (2) or
+    stable implementation using Cholesky decomposition
     to optimize hyperparameters of kernels
     
     Parameters:
@@ -128,7 +189,7 @@ def nll(x, f, kernel=kernel_rbf, noise=1e-2):
         Ensure that the matrix calculations work
         
     Returns:
-    nll_naive 
+    nll_naive or nll_stable function to be minimized
     """
     f = f.ravel()
     N = len(x)
@@ -142,24 +203,23 @@ def nll(x, f, kernel=kernel_rbf, noise=1e-2):
         return 0.5 * f.dot(np.linalg.inv(cov_y).dot(f)) + \
                0.5 * np.log(np.linalg.det(cov_y)) + \
                0.5 * N * np.log(2*np.pi)
-    
-    return nll_naive
 
-def optimized_posterior(x, f, kernel, noise, x_s):
-    """ Derive Posterior distribution with optimized hyperparameters
-    """
-    res = minimize(nll(x, f, kernel=kernel, noise=noise), [1, 1, 1, 1, 1],
-                   bounds=((1e-2, None), (1e-2, None), (1e-2, None), (1e-2, None), (1e-2, None)),
-                   method='L-BFGS-B')
-    # compute posterior with optimized parameters
-    var_opt, ell_opt, var_b_opt, off_opt, per_opt = res.x
-    params = {'var': var_opt,
-              'ell': ell_opt,        
-              'var_b': var_b_opt,
-              'off': off_opt,
-              'per': per_opt}
-    mu_s, cov_s = get_posterior(x, x_s, f, kernel, params=params, noise=noise)
-    return mu_s, cov_s
+    def nll_stable(theta):
+        params = {'var': theta[0],
+                  'ell': theta[1],        
+                  'var_b': theta[2],
+                  'off': theta[3],
+                  'per': theta[4]}
+        cov_y = kernel(x, x, params)     # weniger noise wenn ich noise**2 nehm statt 1e-5
+        L = np.linalg.cholesky(cov_y + 1e-8 * np.eye(N) )
+        alpha_1 = np.linalg.solve(L, f)
+        alpha = np.linalg.solve(L.T, alpha_1)
+        
+        return 0.5 * f.T.dot(alpha) + \
+               np.sum(np.log(np.diagonal(L))) + \
+               0.5 * N * np.log(2*np.pi)
+    
+    return nll_stable
 
 
 def loocv(x, x_s, f, kernel=kernel_rbf, noise=1e-2):
@@ -191,8 +251,10 @@ def loocv(x, x_s, f, kernel=kernel_rbf, noise=1e-2):
     for leave_out in range(N+1):
         X_new = np.delete(x, leave_out).reshape(-1,1)
         f_new = np.delete(f, leave_out).reshape(-1,1)
+        if len(noise)>1:
+            noise_new = np.delete(noise, leave_out).reshape(-1,1)
 
-        mu_s, cov_s = optimized_posterior(X_new, f_new, kernel, noise, x_s)
+        mu_s, cov_s = posterior(X_new, x_s, f_new, kernel, params, noise_new, True, False, 'single')
         
         # prediction for left out data point
         idx_pred = np.absolute(x_s-x[leave_out]).argmin()
@@ -203,15 +265,6 @@ def loocv(x, x_s, f, kernel=kernel_rbf, noise=1e-2):
     return predictions, l2dist
 
 
-def plot_all(name, x, x_s, y, noise = 1e-2):
-    """ Plot prior distributions and posterior distributions (without + with noise) 
-    and save in figures/results
-    Use all available kernels
-    """
-    for kernel in all_kernels:
-        plot_prior(name, kernel, x_s)
-        plot_posterior(name, x, x_s, y, kernel)
-        #plot_posterior(x, x_s, y, kernel, noise)
 
 
 
@@ -224,10 +277,11 @@ def analyse_single():
     y = y_data.reshape(-1,1)
     
     # assume noise
-    #noise = 0.2
+    noise = 0.2
 
-    # plot priors, posteriors, and noisy posteriors for all kernels
-    plot_all('single', x, x_s, y)
+    # derive posteriors with optimized hyperparameters and plot them for all kernels
+    for kernel in all_kernels:
+        posterior(x, x_s, y, kernel, params, noise, True, True, 'single')
 
     # compute LOOCV for all kernels (with optimized parameters and assumed noise)
     for kernel in all_kernels:
@@ -236,20 +290,45 @@ def analyse_single():
 
 
 def analyse_hist():
-    # import histogram data
+    # create normally distributed histogram data for colonies of size 2,3,4,5,7,10, N = sample size
     colony_sizes, outputs = create_hist_output(N=1000)
     x = colony_sizes.reshape(-1,1)
-    # calculate mean number of surviving bees for each colony size (each histogram)
-    y = np.array([sum(np.arange(len(out)) * out) for out in outputs]).reshape(-1,1)
     x_s = create_test_data(N_s = 100, start = 0, end = 15).reshape(-1,1)
 
-    #plot_all('hist', x, x_s, y)
+    # calculate mean number of histogram for each colony size 
+    y = np.array([comp_mean(out, np.arange(len(out))) for out in outputs]).reshape(-1,1)
+    # noise = margin of error for mean
+    noise_y = np.array([comp_margin(t=1.962, sd=comp_sd(obs, np.arange(len(obs)), y[i]), N=100) for (obs,i) \
+                   in zip(outputs, np.arange(len(outputs)))])
 
-    # compute LOOCV for all kernels (with optimized parameters and assumed noise)
+
+    # calculate variance of each histogram as second output
+    y_v = np.array([sum(((np.arange(len(out)) * out) - y[i])**2) for (out,i) in zip(outputs,np.arange(len(outputs)))]).reshape(-1,1)
+    y2 = np.array([comp_sd(obs, np.arange(len(obs)), y[i])**2 for (obs,i) \
+                   in zip(outputs, np.arange(len(outputs)))])
+
+
+    # MEAN: derive posteriors with optimized hyperparameters and plot them for all kernels
     for kernel in all_kernels:
-        pred, l2 = loocv(x, x_s, y, kernel)
+        posterior(x, x_s, y, kernel, params, noise_y, True, True, 'hist_mean') 
+    # compute LOOCV
+    for kernel in all_kernels:
+        pred, l2 = loocv(x, x_s, y, kernel, noise_y)
         print(f'\nPredictions for {kernel.__name__}:', pred, '\nL2 distance: ', l2)
 
+
+    # VARIANCE: derive posteriors with optimized hyperparameters and plot them for all kernels
+    #for kernel in all_kernels:
+    #    posterior(x, x_s, y_v, kernel, params, noise, True, True, 'hist_var') 
+    # VAR: compute LOOCV for all kernels (with optimized parameters and assumed noise)
+    #print('\nVARIANCE')
+    #for kernel in all_kernels:
+    #    pred_v, l2_v = loocv(x, x_s, y_v, kernel)
+    #    print(f'\nPredictions for {kernel.__name__}:', pred_v, '\nL2 distance: ', l2_v)
+
+    # TODO: mean + var in 1 plot? 
+    # TODO: noise around mean
+    # TODO: kernel_add_p_l matrix not positive definite
 
     
 
