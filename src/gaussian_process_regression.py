@@ -3,9 +3,9 @@ Gaussian Process Regression for single value output
 
 1) Predict values from random function
 
-2) Predict mean from histogram
+2) Predict mean and variance of histogram, independently
 
-3) Predict variance from histogram
+3) Predict mean and variance of histogram, multiple output GPR  
 
 """
 
@@ -18,7 +18,6 @@ import numpy as np
 from create_data import *
 from kernels import *
 from scipy.optimize import minimize
-#import itertools
 
 
 """ Global Parameters """
@@ -44,7 +43,7 @@ def create_test_data(N_s: int = 50, start: int = 0, end: int = 15):
     return x_s
 
 def comp_mean(freq, obs):
-    """ Compute mean value of hisogtram with frequencies freq, and observations obs
+    """ Compute mean value of histogram with frequencies freq, and observations obs
     Frequencies must be fractions, not integers!
     """
     return np.sum(freq * obs)
@@ -86,11 +85,11 @@ def prior(kernel = kernel_rbf, x_s = np.array, plot = True, name = 'single'):
         plt.figure(figsize=(12,6))
         for sample in f_prior:
             plt.plot(x_s, sample, lw=1.5, ls='-')
-        plt.title(f'{name} output - Prior using {kernel.__name__}')
+        plt.title(f'{name} output - prior using {kernel.__name__.split("_",1)[1]} kernel')
         plt.xlabel('x')
         plt.ylabel('f')
         plt.tight_layout()        
-        plt.savefig(f'figures/results/{name}_output_gpr_prior_{kernel.__name__}.png')
+        plt.savefig(f'figures/results/{name}_output_gpr_prior_{kernel.__name__.split("_",1)[1]}.png')
     return mu_prior, cov_prior
 
 
@@ -148,8 +147,7 @@ def posterior(x, x_s, f, kernel = kernel_rbf, params = params, noise = 1e-15, op
 
 
     if plot:
-        x_s = x_s.ravel()
-        mu = mu_s.ravel()
+        x_s, mu = x_s.ravel(), mu_s.ravel()
         cov = sigma_s
         uncertainty = 1.96 * np.sqrt(np.diag(cov))
 
@@ -163,11 +161,11 @@ def posterior(x, x_s, f, kernel = kernel_rbf, params = params, noise = 1e-15, op
         if x is not None:
             plt.plot(x, f, 'o', ms=8, color='darkblue')
         plt.legend()
-        plt.title(f'{name} output - Posterior using {kernel.__name__}')
+        plt.title(f'{name} output - posterior using {kernel.__name__.split("_",1)[1]} kernel')
         plt.xlabel('x')
         plt.ylabel('f')
         plt.tight_layout()        
-        plt.savefig(f'figures/results/{name}_output_gpr_posterior_{kernel.__name__}.png')
+        plt.savefig(f'figures/results/{name}_gpr_{kernel.__name__.split("_",1)[1]}.png')
 
     return mu_s, sigma_s
 
@@ -211,7 +209,7 @@ def nll(x, f, kernel=kernel_rbf, noise=1e-2):
                   'off': theta[3],
                   'per': theta[4]}
         cov_y = kernel(x, x, params)     # weniger noise wenn ich noise**2 nehm statt 1e-5
-        L = np.linalg.cholesky(cov_y + 1e-8 * np.eye(N) )
+        L = np.linalg.cholesky(cov_y + 1e-5 * np.eye(N) )
         alpha_1 = np.linalg.solve(L, f)
         alpha = np.linalg.solve(L.T, alpha_1)
         
@@ -227,7 +225,8 @@ def loocv(x, x_s, f, kernel=kernel_rbf, noise=1e-2):
     For each input data point, remove it from training data, then:
         Optimize hyperparameters of specified kernel 
         Derive posterior distribution with optimized parameters
-        Obtain prediction for left-out data point
+        Obtain prediction for left-out data point and calculate MSE
+    Total score is average of all MSEs
     
     Parameters:
     x : array N x 1
@@ -253,89 +252,109 @@ def loocv(x, x_s, f, kernel=kernel_rbf, noise=1e-2):
         f_new = np.delete(f, leave_out).reshape(-1,1)
         if len(noise)>1:
             noise_new = np.delete(noise, leave_out).reshape(-1,1)
+        else:
+            noise_new = noise
 
         mu_s, cov_s = posterior(X_new, x_s, f_new, kernel, params, noise_new, True, False, 'single')
         
         # prediction for left out data point
-        idx_pred = np.absolute(x_s-x[leave_out]).argmin()
-        predictions.append(mu_s.item(idx_pred))
+        #idx_pred = np.absolute(x_s-x[leave_out]).argmin()
+        #predictions.append(mu_s.item(idx_pred))
+        predictions.append(predict(x, x_s, mu_s, leave_out))
 
-    l2dist = np.linalg.norm(f.reshape(1,-1) - predictions)
+    #l2dist = np.linalg.norm(f.reshape(1,-1) - predictions)
+    mse = np.square(np.subtract(f.reshape(1,-1), predictions)).mean()
 
-    return predictions, l2dist
+    return predictions, mse
+
+
+def predict(x, x_s, mu_s, pred):
+    """ Return prediction for data point pred
+    Equals value of mean function of posterior at this point
+    """
+    idx = np.absolute(x_s - x[pred]).argmin()
+    return mu_s.item(idx)
 
 
 
 
+""" Run complete program """
 
 def analyse_single():
-     # import single output data
+    """ Import single values from random function and assume some noise
+    For all kernels:
+        derive posterior distribution with optimized hyperparameters
+        plot mean function, 5 samples, and uncertainty
+        find best model with LOOCV
+    """
     [x_true,y_true], [x_data,y_data] = create_single_output()
     x_s = x_true.reshape(-1,1)
     #x_s = create_test_data(N_s = 100, start = 0, end = 10).reshape(-1,1)
     x = x_data.reshape(-1,1)
     y = y_data.reshape(-1,1)
-    
-    # assume noise
-    noise = 0.2
+    noise = np.array([0.2])
 
-    # derive posteriors with optimized hyperparameters and plot them for all kernels
+    print("\n--- Predict single values from random function ---")
+    min_mse, best_pred, best_kernel = 1000, 0, 0
     for kernel in all_kernels:
         posterior(x, x_s, y, kernel, params, noise, True, True, 'single')
+        pred, mse = loocv(x, x_s, y, kernel, noise)
+        if mse < min_mse:
+            min_mse, best_pred, best_kernel = mse, pred, kernel
+    print(f'\nBest results for {best_kernel.__name__.split("_",1)[1]}:', best_pred, '\nMSE: ', min_mse)
 
-    # compute LOOCV for all kernels (with optimized parameters and assumed noise)
-    for kernel in all_kernels:
-        pred, l2 = loocv(x, x_s, y, kernel)
-        print(f'\nPredictions for {kernel.__name__}:', pred, '\nL2 distance: ', l2)
 
-
-def analyse_hist():
-    # create normally distributed histogram data for colonies of size 2,3,4,5,7,10, N = sample size
-    colony_sizes, outputs = create_hist_output(N=1000)
+def analyse_hist(colony_sizes, outputs):
+    """ Analyze mean and variance of histograms individually, with colony_sizes describing the range of
+    the histogram and outputs describing the probabilities
+    Compute 95% confidence interval around mean and variance to use as noise around data points
+    For all kernels:
+        derive posterior distribution with optimized hyperparameters
+        plot mean function, 5 samples, and uncertainty
+        find best model with LOOCV
+    """
     x = colony_sizes.reshape(-1,1)
     x_s = create_test_data(N_s = 100, start = 0, end = 15).reshape(-1,1)
 
-    # calculate mean number of histogram for each colony size 
-    y = np.array([comp_mean(out, np.arange(len(out))) for out in outputs]).reshape(-1,1)
-    # noise = margin of error for mean
-    noise_y = np.array([comp_margin(t=1.962, sd=comp_sd(obs, np.arange(len(obs)), y[i]), N=100) for (obs,i) \
-                   in zip(outputs, np.arange(len(outputs)))])
+    # calculate mean number of histograms with margin of 95% confidence interval
+    y_mean = np.array([comp_mean(out, np.arange(len(out))) for out in outputs]).reshape(-1,1)
+    noise_mean = np.array([comp_margin(t=1.962, sd=comp_sd(obs, np.arange(len(obs)), y_mean[i]), N=100) for (obs,i) \
+                   in zip(outputs, np.arange(len(outputs)))])       # t for 95% with df=n-1=99
 
+    # calculate variance of histograms as second output
+    y_var = np.array([comp_sd(obs, np.arange(len(obs)), y_mean[i])**2 for (obs,i) in zip(outputs, np.arange(len(outputs)))])
+    # TODO: eigentlich ist noise hier asymmetric, weil confidence interval von variance asymmetric ist -> ich nehm hier aber erstmal nur obere
+    # grenze vom interval als margin & mach das später; für 95% confidence und df=n-1=99 kriegen wir chi_(1-alpha/2)^2 = 73.361
+    noise_var = np.array([(((99 * var) / 73.361) - var) for var in y_var])
 
-    # calculate variance of each histogram as second output
-    y_v = np.array([sum(((np.arange(len(out)) * out) - y[i])**2) for (out,i) in zip(outputs,np.arange(len(outputs)))]).reshape(-1,1)
-    y2 = np.array([comp_sd(obs, np.arange(len(obs)), y[i])**2 for (obs,i) \
-                   in zip(outputs, np.arange(len(outputs)))])
-
-
-    # MEAN: derive posteriors with optimized hyperparameters and plot them for all kernels
+    print("\n--- Predict mean & variance of histograms independently ---")
+    min_mse_mean, best_pred_mean, best_kernel_mean = 1000, 0, 0
+    min_mse_var, best_pred_var, best_kernel_var = 1000, 0, 0
     for kernel in all_kernels:
-        posterior(x, x_s, y, kernel, params, noise_y, True, True, 'hist_mean') 
-    # compute LOOCV
-    for kernel in all_kernels:
-        pred, l2 = loocv(x, x_s, y, kernel, noise_y)
-        print(f'\nPredictions for {kernel.__name__}:', pred, '\nL2 distance: ', l2)
+        posterior(x, x_s, y_mean, kernel, params, noise_mean, True, True, 'hist_mean') 
+        pred_mean, mse_mean = loocv(x, x_s, y_mean, kernel, noise_mean)
+        if mse_mean < min_mse_mean:
+            min_mse_mean, best_pred_mean, best_kernel_mean = mse_mean, pred_mean, kernel
 
-
-    # VARIANCE: derive posteriors with optimized hyperparameters and plot them for all kernels
-    #for kernel in all_kernels:
-    #    posterior(x, x_s, y_v, kernel, params, noise, True, True, 'hist_var') 
-    # VAR: compute LOOCV for all kernels (with optimized parameters and assumed noise)
-    #print('\nVARIANCE')
-    #for kernel in all_kernels:
-    #    pred_v, l2_v = loocv(x, x_s, y_v, kernel)
-    #    print(f'\nPredictions for {kernel.__name__}:', pred_v, '\nL2 distance: ', l2_v)
-
-    # TODO: mean + var in 1 plot? 
-    # TODO: noise around mean
+        posterior(x, x_s, y_var, kernel, params, noise_var, True, True, 'hist_var') 
+        pred_var, mse_var = loocv(x, x_s, y_var, kernel, noise_var)
+        if mse_var < min_mse_var:
+            min_mse_var, best_pred_var, best_kernel_var = mse_var, pred_var, kernel
+        
+    print(f'\nMEAN - Best results for {best_kernel_mean.__name__.split("_",1)[1]}:', best_pred_mean, '\nMSE: ', min_mse_mean)
+    print(f'\nVAR - Best results for {best_kernel_var.__name__.split("_",1)[1]}:', best_pred_var, '\nMSE: ', min_mse_var)
+    
     # TODO: kernel_add_p_l matrix not positive definite
 
     
 
 def main():
    
-    #analyse_single()
-    analyse_hist()
+    analyse_single()
+
+    # create normally distributed histogram data for colonies of size 2,3,4,5,7,10, N = sample size
+    colony_sizes, outputs = create_hist_output(N=1000)
+    analyse_hist(colony_sizes, outputs)
 
 
 
