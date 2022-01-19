@@ -23,15 +23,10 @@ from create_data import *
 from kernels import *
 from scipy.optimize import minimize
 
+import pickle
+
 
 """ Global Parameters """
-
-# define all hyperparameters for all kernels
-params = {'var':   0.5,
-          'ell':   2,        # larger l -> less wiggles
-          'var_b': 2,
-          'off':   0.5,
-          'per':   2}
 
 # define all kernels
 all_kernels = [kernel_linear, kernel_rbf, kernel_periodic, kernel_add_p_r, kernel_add_r_l,
@@ -41,13 +36,8 @@ all_kernels = [kernel_linear, kernel_rbf, kernel_periodic, kernel_add_p_r, kerne
 correction = 1e-4
 
 
-""" Helper Functions """
 
-def create_test_data(N_s: int = 50, start: int = 0, end: int = 15):
-    """ Create test set as N_s points from start to end 
-    """
-    x_s = np.linspace(start, end, N_s).reshape(-1,1)
-    return x_s
+""" Helper Functions """
 
 def plot_training(x, y, scale, name):
     """ Plot observations as scatter plot showing the satisfaction probabilities
@@ -57,8 +47,8 @@ def plot_training(x, y, scale, name):
     plt.title(f'Training dataset with {scale} trajectories per input point')
     plt.xlabel('$\theta$')
     plt.ylabel('Satisfaction probability')
-    plt.yticks([0, 1])
-    plt.savefig(f'figures/results/gpc/{name}_training.png')
+    plt.yticks(np.arange(0, 1.1, step=0.1))
+    plt.savefig(f'../figures/results/gpc/{name}_training.png')
 
 def get_bees_data(thresh, scale):
     """ Read txt files containing number of stinging bees after the experiments
@@ -66,7 +56,7 @@ def get_bees_data(thresh, scale):
     """
     collect_data = {}
 
-    for dirpath, dirs, files in os.walk("data/stochnet"):
+    for dirpath, dirs, files in os.walk("../data/stochnet"):
         for file in files:
             nbees = int((file.split("_")[1]).split(".")[0])
             with open(os.path.join(dirpath, file), 'r') as f:
@@ -327,13 +317,13 @@ def ep_update(cav_diagV, cav_m, Term, eps_damp, gauss_LikPar_p,
             c2[i] = 1e-4
         else:
             c2[i] = (1 / Cumul[i,1]) - (1 / cav_diagV[i])
-    """ 
+    
     for k in np.arange(datapoints):
-        if((1/c2[k] == np.infty) and (1/cav_diagV[k] == 0 or gauss_m[k] == cav_m[k])):
+        if((1/c2[k] == np.infty) and (1/cav_diagV[k] == 0)):
             c1[k] = cav_m[k] * cav_diagV[k]
         else:
             c1[k] = Cumul[k,0] / Cumul[k,1] - cav_m[k] / cav_diagV[k]
-    """
+    
 
     for j in np.arange(datapoints):
         if (1/c2[j] + cav_diagV[j]) < 0:
@@ -481,8 +471,39 @@ def expectation_propagation(paramValueSet, paramValueOutputs, scale, params):
     return mu_tilde, invC
 
 
-def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name):
+def perform_ep(x, f, scale, params):
     """
+    Take care that matrix is positive definite, then perform EP
+    If not, change kernel's hyperparameters and try again
+    """
+    var = params['var']
+    ell = params['ell']
+    mu_tilde = None
+    invC = None
+    try:
+        mu_tilde, invC = expectation_propagation(x, f, scale, params)
+    except (np.linalg.linalg.LinAlgError, ValueError) as err:
+        if ell > 20:
+            print("NOT CONVERGING")
+        else:
+            if any(s in str(err) for s in ['not positive definite', 'infs or NaNs']):
+                params = {'var': 1/3*var,
+                        'ell': 1+ell,        
+                        'var_b': 1,
+                        'off': 1}
+                print('nochmal')
+                perform_ep(x, f, scale, params)
+            else:
+                raise
+    return mu_tilde, invC
+
+
+
+def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name):
+    """ 
+    Compute posterior distribution, derive predictive mean and variance
+    Plot mean function together with 95% confidence interval
+
     Args:
         x: training set (inputs)
         x_s: test set (inputs)
@@ -520,70 +541,26 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name):
     plt.plot(x_s, probabilities, lw=1.5, ls='-')
     plt.fill_between(x_s.ravel(), lowerbound.ravel(), upperbound.ravel(), alpha=0.2)
     plt.scatter(x, f, marker='o', c='blue')
+    plt.yticks(np.arange(0, 0.6, step=0.1))
     plt.title('Predictive probability together with 95% confidence interval')
     plt.xlabel('Population size $N$')
     plt.ylabel('Satisfaction probability')
-    plt.savefig(f'figures/results/gpc/{name}_posterior.png')
+    plt.savefig(f'../figures/results/gpc/{name}_posterior.png')
+
+    return probabilities
 
 
-
-
-
-
-def loocv(x, x_s, f, kernel=kernel_rbf, noise=1e-2):
-    """ Leave-one-out cross-validation to compare model performances
-    For each input data point, remove it from training data, then:
-        Optimize hyperparameters of specified kernel 
-        Derive posterior distribution with optimized parameters
-        Obtain prediction for left-out data point and calculate MSE
-    Total score is average of all MSEs
-    
-    Parameters:
-    x : array N x 1
-        Training data input
-    x_s : array N x 1
-        Test data input 
-    f : array N x 1
-        Training data output
-    kernel : function (default: rbf kernel)
-        Kernel function that specifies respective model
-    noise : float (default: 1e-2)
-        
-    Returns:
-    predictions : list
-        List of predictions of left-out training data points    
-    l2dist : float
-        Distance of predictions to true training data output
-    """
-    predictions = []
-    N = len(x) - 1
-    for leave_out in range(N+1):
-        X_new = np.delete(x, leave_out).reshape(-1,1)
-        f_new = np.delete(f, leave_out).reshape(-1,1)
-        if len(noise)>1:
-            noise_new = np.delete(noise, leave_out).reshape(-1,1)
-        else:
-            noise_new = noise
-
-        mu_s, cov_s = posterior(X_new, x_s, f_new, kernel, params, noise_new, True, False, 'single')
-        
-        # prediction for left out data point
-        #idx_pred = np.absolute(x_s-x[leave_out]).argmin()
-        #predictions.append(mu_s.item(idx_pred))
-        predictions.append(predict(x, x_s, mu_s, leave_out))
-
-    #l2dist = np.linalg.norm(f.reshape(1,-1) - predictions)
-    mse = np.square(np.subtract(f.reshape(1,-1), predictions)).mean()
-
-    return predictions, mse
-
-
-def predict(x, x_s, mu_s, pred):
-    """ Return prediction for data point pred
-    Equals value of mean function of posterior at this point
-    """
-    idx = np.absolute(x_s - x[pred]).argmin()
-    return mu_s.item(idx)
+def coeff_variation(probs, name):
+    c = []
+    for t in probs:
+        c.append(np.std(probs[t])/np.mean(probs[t]))
+    plt.figure(figsize=(12,6))
+    plt.plot(probs.keys(), c, lw=1.5, ls='-')
+    plt.scatter(probs.keys(), c, marker='o', c='blue')
+    plt.title('Coefficient of variation for different thresholds as: sd/mean')
+    plt.xlabel('Threshold $t$')
+    plt.ylabel('Coefficient of variation')
+    plt.savefig(f'../figures/results/gpc/{name}_variation.png')
 
 
 
@@ -608,17 +585,22 @@ def analyse_ex_paper():
     print("Actual data (number of runs satisfying property): ", (paramValueOutput * scale).reshape(1,-1))
 
     # define default hyperparameters for kernels
-    params = {'var': 1/scale,
+    params = {'var': 1/5,
             'ell': 1,        
             'var_b': 1,
             'off': 1}
 
-    mu_tilde, invC = expectation_propagation(paramValueSet, paramValueOutput, scale, params)
+    # perform EP
+    mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, params)
+    
+    # derive predictive probabilities and confidence intervals, save plot
+    testset = np.linspace(0, 5, 50).reshape(-1,1)
+    get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, 'paper_ex')
 
 
 
 
-def analyse_bees(colony_sizes, outputs):
+def analyse_bees(t, v, l):
     """ 
     Analyze satisfaction probability for different population sizes to find out if function is robust
     Input: histogram data for different population sizes n
@@ -627,32 +609,61 @@ def analyse_bees(colony_sizes, outputs):
     """
 
     scale = 10000
-    thresh = 0.2
+    thresh = t
     paramValueSet, paramValueOutput = get_bees_data(thresh, scale)
 
+    scale = 1000
     plot_training(paramValueSet, paramValueOutput, scale, f'bees_stochnet_{thresh}')
 
     # define default hyperparameters for kernels
-    params = {'var': 1/500,
-            'ell': 10,        
+    # variance = max-min / 2 for output values (if this is 0, set to 1)
+    # lengthscale = max - min / 10 for input values
+    params = {'var': v,
+            'ell': l,        
             'var_b': 1,
             'off': 1}
    
-    mu_tilde, invC = expectation_propagation(paramValueSet, paramValueOutput, scale, params)
+    mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, params)
 
+    # derive predictive probabilities and confidence intervals, save plot
+    testset = np.linspace(15, 150, 500).reshape(-1,1)
+    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, f'bees_stochnet_{thresh}')
 
+    return p
 
 
     
 
 def main():
-   
-    analyse_single()
+    #analyse_ex_paper()
 
-    # create normally distributed histogram data for colonies of size 2,3,4,5,7,10, N = sample size
-    colony_sizes, outputs = create_hist_output(N=1000)
-    analyse_hist(colony_sizes, outputs)
+    probs = {}
+    threshs = np.arange(0.09, 0.25, 0.02)
 
+    #threshs = np.arange(0.20, 0.25, 0.02)
+
+    for t in threshs:
+        print("t = ", t)
+        probs[t] = analyse_bees(t, 0.01, 10)
+
+    #analyse_bees(0.2, 0.05, 10)
+    #analyse_bees(0.15, 0.05, 10)
+    #analyse_bees(0.17, 0.05, 10)
+    #analyse_bees(0.23, 0.01, 10)
+    #analyse_bees(0.13, 0.01, 10)
+    #analyse_bees(0.11, 0.01, 10)
+    #analyse_bees(0.14, 0.01, 10)
+    #analyse_bees(0.16, 0.01, 10)
+    #analyse_bees(0.18, 0.01, 10)
+    #analyse_bees(0.19, 0.01, 10)
+    #infile = open('../../data_10.p','rb')
+    #new_dict = pickle.load(infile)
+    #infile.close()
+
+    coeff_variation(probs, f'bees_stochnet')
+
+
+    #print(new_dict)
 
 
 if __name__ == "__main__":
