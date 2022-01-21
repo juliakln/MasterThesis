@@ -608,11 +608,11 @@ def analyse_bees(t, v, l):
 
     """
 
-    scale = 10000
+    scale = 1000
     thresh = t
     paramValueSet, paramValueOutput = get_bees_data(thresh, scale)
 
-    scale = 1000
+    #scale = 1000
     plot_training(paramValueSet, paramValueOutput, scale, f'bees_stochnet_{thresh}')
 
     # define default hyperparameters for kernels
