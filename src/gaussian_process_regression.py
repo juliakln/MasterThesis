@@ -16,6 +16,7 @@ warnings.filterwarnings("ignore")
 import matplotlib.pyplot as plt
 import numpy as np
 from create_data import *
+from read_data import *
 from kernels import *
 from scipy.optimize import minimize
 
@@ -59,32 +60,6 @@ def comp_margin(t, sd, N):
     """
     return t * (sd / np.sqrt(N))
 
-def read_hist_data(file):
-    """ Read txt files containing histograms of stinging bees after the experiments
-    Args:
-        file: name of txt file that contains data
-        First line: colony sizes, f.ex. [1 5 8 10]
-        Then 1 line for each colony size with frequencies for each outcome, f.ex. [0.13 0.87] /n [0.2 0.1 0.3 0.2 0.1 0.1] ...
-    Returns:
-        colony_sizes: list of colony sizes 
-        outputs: nested list with frequencies for each size
-    """
-
-    outputs = []
-    
-    with open((f"../data/{file}"), 'r') as f:
-        data = f.read()
-
-        # sizes in first line of txt file
-        colony_sizes = np.array([int(c) for c in (data.split("\n")[0]).split(",")])
-
-        y_frequencies = (data.split("\n")[1:])
-
-        for f in y_frequencies:
-            freq = np.array([float(i) for i in f.split(",")])
-            outputs.append(list(freq))
-
-    return colony_sizes, outputs
 
 
 
@@ -391,16 +366,16 @@ def main():
 
     # MORGANE BEE DATA
     # Dataset 1 PO - 60 samples
-    colony_sizes_po, outputs_po = read_hist_data("bees_morgane/hist1_PO.txt")
+    colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist1_PO.txt")
     #analyse_hist(colony_sizes_po, outputs_po, 0, 13, 60, 'beesMorgane1PO')
 
     # Dataset 1 IAA - 60 samples
-    colony_sizes_iaa, outputs_iaa = read_hist_data("bees_morgane/hist1_IAA.txt")
+    colony_sizes_iaa, outputs_iaa = read_hist_exp("bees_morgane/hist1_IAA.txt")
     #analyse_hist(colony_sizes_iaa, outputs_iaa, 0, 13, 60, 'beesMorgane1IAA')
 
     # Dataset 2 - samples: 68,68,60,56,52,48
     # erstmal mit mittlerer sample size (58) rechnen bis ichs angepasst hab? TODO: richtige sample size rechnen
-    colony_sizes_2, outputs_2 = read_hist_data("bees_morgane/hist2.txt")
+    colony_sizes_2, outputs_2 = read_hist_exp("bees_morgane/hist2.txt")
     analyse_hist(colony_sizes_2, outputs_2, 0, 17, 58, 'beesMorgane2')
 
 

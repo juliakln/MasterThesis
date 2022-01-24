@@ -5,25 +5,21 @@ Estimate satisfaction function for property
 
 """
 
-import os
 import numpy as np
 import numpy.matlib
-import math
 from scipy.stats import norm
 from scipy.special import erf 
 # scipy gives upper triangular matrix, numpy lower
 from scipy.linalg import cholesky
 import matplotlib.pyplot as plt
-
+from read_data import *
 import sys
 import warnings
 from numpy.core.fromnumeric import reshape
 warnings.filterwarnings("ignore")
 from create_data import *
 from kernels import *
-from scipy.optimize import minimize
 
-import pickle
 
 
 """ Global Parameters """
@@ -45,41 +41,10 @@ def plot_training(x, y, scale, name):
     plt.figure(figsize=(12,6))
     plt.scatter(x, y, marker='o', c='blue')
     plt.title(f'Training dataset with {scale} trajectories per input point')
-    plt.xlabel('$\theta$')
+    plt.xlabel('Population size $N$')
     plt.ylabel('Satisfaction probability')
     plt.yticks(np.arange(0, 1.1, step=0.1))
     plt.savefig(f'../figures/results/gpc/{name}_training.png')
-
-def get_bees_data(thresh, scale):
-    """ Read txt files containing number of stinging bees after the experiments
-    and collect how often property is satisfied for trajectory
-    """
-    collect_data = {}
-
-    for dirpath, dirs, files in os.walk("../data/stochnet"):
-        for file in files:
-            nbees = int((file.split("_")[1]).split(".")[0])
-            with open(os.path.join(dirpath, file), 'r') as f:
-                data = f.read()
-                x_deadbees = (data.split("]")[0])[2:].replace(".","")
-                y_frequencies = (data.split("]")[1])[2:]
-                # compute number of living bees 
-                bees = np.array([nbees-int(i) for i in x_deadbees.split()])
-                freq = np.array([int(i) for i in y_frequencies.split()])
-                
-                threshold = np.ceil(thresh * nbees)            
-                satisfactions = np.sum(freq[bees >= threshold])
-                
-                collect_data[nbees] = satisfactions
-                
-    # population size n together with number of trajectories satisfying property, sort by n
-    paramValueSet = []
-    paramValueOutputs = []
-    for key in sorted(collect_data):
-        paramValueSet.append(key)
-        paramValueOutputs.append(collect_data[key])
-
-    return np.array(paramValueSet).reshape(-1,1), (np.array(paramValueOutputs).reshape(-1,1))/scale
 
 def standardNormalCDF(x):
     """ Compute probit values (probabilities from real values)
@@ -541,7 +506,7 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name):
     plt.plot(x_s, probabilities, lw=1.5, ls='-')
     plt.fill_between(x_s.ravel(), lowerbound.ravel(), upperbound.ravel(), alpha=0.2)
     plt.scatter(x, f, marker='o', c='blue')
-    plt.yticks(np.arange(0, 0.6, step=0.1))
+    plt.yticks(np.arange(0, 1.1, step=0.1))
     plt.title('Predictive probability together with 95% confidence interval')
     plt.xlabel('Population size $N$')
     plt.ylabel('Satisfaction probability')
@@ -600,19 +565,69 @@ def analyse_ex_paper():
 
 
 
-def analyse_bees(t, v, l):
+def analyse_exp(col, out, t, scale, v, l, case):
     """ 
     Analyze satisfaction probability for different population sizes to find out if function is robust
-    Input: histogram data for different population sizes n
+    Input: histogram data for different population sizes n (experimental data!)
     Then compute GPC of satisfaction probabilty
+
+    Args:
+        col: list of colony sizes
+        out: nested list of frequency outputs after experiment
+        t: threshold for "min. t bees are alive after experiment" (fraction)
+        scale: sample size
+        v: variance of kernel
+        l: lengthscale of kernel
+        case: name of experiment for saving files
+    Returns:
+        p: predictive probabilities
+    """
+    paramValueSet = np.array(col).reshape(-1,1)
+    satisfactions = []
+    for i in np.arange(len(col)):
+        # compute number of living bees
+        bees = list(reversed(out[i]))
+        # compute threshold = how many bees do at least have to be alive?
+        threshold = int(np.ceil(t * col[i]))
+        # sum up the frequencies for all outcomes of experiment that satisfy the property
+        satisfactions.append(np.sum(bees[threshold:]))
+    paramValueOutput = np.array(satisfactions).reshape(-1,1)
+
+    plot_training(paramValueSet, paramValueOutput, scale, case+str(round(t, 2)))
+    
+    # default hyperparameters for kernel
+    params = {'var': v,
+            'ell': l,        
+            'var_b': 1,
+            'off': 1}
+    
+    mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, params)
+
+    # derive predictive probabilities and confidence intervals, save plot
+    testset = np.linspace(0, 13, 500).reshape(-1,1)
+    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, case+str(round(t,2)))
+
+    return p
+    
+
+
+def analyse_stoch(t, v, l):
+    """ 
+    Analyze satisfaction probability for different population sizes to find out if function is robust
+    Input: histogram data for different population sizes n (simulated data - Stochnet)
+    Then compute GPC of satisfaction probabilty
+    Args:
+        t: threshold for "min. t bees are alive after experiment"
+        v: variance of kernel
+        l: lengthscale of kernel
+    Returns:
+        p: predictive probabilities
 
     """
 
     scale = 1000
     thresh = t
-    paramValueSet, paramValueOutput = get_bees_data(thresh, scale)
-
-    #scale = 1000
+    paramValueSet, paramValueOutput = read_stochnet(thresh, scale)
     plot_training(paramValueSet, paramValueOutput, scale, f'bees_stochnet_{thresh}')
 
     # define default hyperparameters for kernels
@@ -637,33 +652,27 @@ def analyse_bees(t, v, l):
 def main():
     #analyse_ex_paper()
 
+    # analyse Stochnet simulations
+    # property = What is the probability that >= t bees are alive after each run?
+    """
     probs = {}
     threshs = np.arange(0.09, 0.25, 0.02)
-
-    #threshs = np.arange(0.20, 0.25, 0.02)
-
     for t in threshs:
         print("t = ", t)
-        probs[t] = analyse_bees(t, 0.01, 10)
-
-    #analyse_bees(0.2, 0.05, 10)
-    #analyse_bees(0.15, 0.05, 10)
-    #analyse_bees(0.17, 0.05, 10)
-    #analyse_bees(0.23, 0.01, 10)
-    #analyse_bees(0.13, 0.01, 10)
-    #analyse_bees(0.11, 0.01, 10)
-    #analyse_bees(0.14, 0.01, 10)
-    #analyse_bees(0.16, 0.01, 10)
-    #analyse_bees(0.18, 0.01, 10)
-    #analyse_bees(0.19, 0.01, 10)
-    #infile = open('../../data_10.p','rb')
-    #new_dict = pickle.load(infile)
-    #infile.close()
-
+        probs[t] = analyse_stoch(t, 0.01, 10)
     coeff_variation(probs, f'bees_stochnet')
+    """    
+
+    # analyse experiment data from Morgane
+    colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist1_PO.txt")
+    probs = {}
+    threshs = np.arange(0.2, 0.7, 0.05)
+    for t in threshs:
+        print("t = ", t)
+        probs[t] = analyse_exp(colony_sizes_po, outputs_po, t, 60, 0.1, 1, 'bees_morgane1PO')
+    coeff_variation(probs, f'bees_morgane1PO')
 
 
-    #print(new_dict)
 
 
 if __name__ == "__main__":
