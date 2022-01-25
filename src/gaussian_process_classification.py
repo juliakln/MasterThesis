@@ -454,6 +454,7 @@ def perform_ep(x, f, scale, params):
             if any(s in str(err) for s in ['not positive definite', 'infs or NaNs']):
                 params = {'var': 1/3*var,
                         'ell': 1+ell,        
+                        'ell_dim': [2, 5],
                         'var_b': 1,
                         'off': 1}
                 print('nochmal')
@@ -552,6 +553,7 @@ def analyse_ex_paper():
     # define default hyperparameters for kernels
     params = {'var': 1/5,
             'ell': 1,        
+            'ell_dim': [2, 5],
             'var_b': 1,
             'off': 1}
 
@@ -597,7 +599,8 @@ def analyse_exp(col, out, t, scale, v, l, case):
     
     # default hyperparameters for kernel
     params = {'var': v,
-            'ell': l,        
+            'ell': l,      
+            'ell_dim': [2, 5],  
             'var_b': 1,
             'off': 1}
     
@@ -635,6 +638,7 @@ def analyse_stoch(t, v, l):
     # lengthscale = max - min / 10 for input values
     params = {'var': v,
             'ell': l,        
+            'ell_dim': [2, 5],
             'var_b': 1,
             'off': 1}
    

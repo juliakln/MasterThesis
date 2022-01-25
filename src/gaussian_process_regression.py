@@ -26,6 +26,7 @@ from scipy.optimize import minimize
 # define all hyperparameters for all kernels
 params = {'var':   0.5,
           'ell':   2,        # larger l -> less wiggles
+          'ell_dim': [2, 5],
           'var_b': 2,
           'off':   0.5,
           'per':   2}
@@ -47,6 +48,17 @@ def comp_mean(freq, obs):
     """ Compute mean value of histogram with frequencies freq, and observations obs
     Frequencies must be fractions, not integers!
     """
+    return np.sum(freq * obs)
+
+def comp_surv(freq, obs):
+    """ Compute percentage of survivors of histogram with frequencies freq, and observations obs
+    Frequencies must be fractions, not integers!
+    """
+    freq = list(reversed(freq))
+    print(freq)
+    print(obs)
+    obs = obs / np.max(obs)
+    print(obs)
     return np.sum(freq * obs)
 
 def comp_sd(freq, obs, mu):
@@ -129,7 +141,8 @@ def posterior(x, x_s, f, kernel = kernel_rbf, params = params, noise = 1e-15, op
         # take optimized parameters for deriving posterior distribution
         var_opt, ell_opt, var_b_opt, off_opt, per_opt = res.x
         params = {'var': var_opt,
-                'ell': ell_opt,        
+                'ell': ell_opt,   
+                'ell_dim': [2, 5],     
                 'var_b': var_b_opt,
                 'off': off_opt,
                 'per': per_opt}
@@ -331,14 +344,25 @@ def analyse_hist(colony_sizes, outputs, teststart, testend, samplesize, name):
     # grenze vom interval als margin & mach das später; für 95% confidence und df=n-1=99 kriegen wir chi_(1-alpha/2)^2 = 73.361
     noise_var = np.array([(((99 * var) / 73.361) - var) for var in y_var])
 
+    # calculate mean percentage of survivors for each colony size
+    y_surv = np.array([comp_surv(out, np.arange(len(out))) for out in outputs]).reshape(-1,1)
+    noise_surv = np.array([comp_margin(t=1.962, sd=comp_sd(obs, np.arange(len(obs)), y_surv[i]), N=samplesize) for (obs,i) \
+                   in zip(outputs, np.arange(len(outputs)))])       # t for 95% with df=n-1=99
+
     print("\n--- Predict mean & variance of histograms independently ---")
     min_mse_mean, best_pred_mean, best_kernel_mean = 1000, 0, 0
     min_mse_var, best_pred_var, best_kernel_var = 1000, 0, 0
+    min_mse_surv, best_pred_surv, best_kernel_surv = 1000, 0, 0
     for kernel in all_kernels:
         posterior(x, x_s, y_mean, kernel, params, noise_mean, True, True, f'{name}_mean') 
         pred_mean, mse_mean = loocv(x, x_s, y_mean, kernel, noise_mean)
         if mse_mean < min_mse_mean:
             min_mse_mean, best_pred_mean, best_kernel_mean = mse_mean, pred_mean, kernel
+
+        posterior(x, x_s, y_surv, kernel, params, noise_surv, True, True, f'{name}_surv') 
+        pred_surv, mse_surv = loocv(x, x_s, y_surv, kernel, noise_surv)
+        if mse_surv < min_mse_surv:
+            min_mse_surv, best_pred_surv, best_kernel_surv = mse_surv, pred_surv, kernel
 
         posterior(x, x_s, y_var, kernel, params, noise_var, True, True, f'{name}_var') 
         pred_var, mse_var = loocv(x, x_s, y_var, kernel, noise_var)
@@ -346,6 +370,7 @@ def analyse_hist(colony_sizes, outputs, teststart, testend, samplesize, name):
             min_mse_var, best_pred_var, best_kernel_var = mse_var, pred_var, kernel
         
     print(f'\nMEAN - Best results for {best_kernel_mean.__name__.split("_",1)[1]}:', best_pred_mean, '\nMSE: ', min_mse_mean)
+    print(f'\nSURV - Best results for {best_kernel_surv.__name__.split("_",1)[1]}:', best_pred_surv, '\nMSE: ', min_mse_surv)
     print(f'\nVAR - Best results for {best_kernel_var.__name__.split("_",1)[1]}:', best_pred_var, '\nMSE: ', min_mse_var)
     
     # TODO: kernel_add_p_l matrix not positive definite
