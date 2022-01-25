@@ -166,8 +166,8 @@ def posterior(x, x_s, f, kernel = kernel_rbf, params = params, noise = 1e-15, op
             plt.plot(x, f, 'o', ms=8, color='darkblue')
         plt.legend()
         plt.title(f'{name} output - posterior using {kernel.__name__.split("_",1)[1]} kernel')
-        plt.xlabel('x')
-        plt.ylabel('f')
+        plt.xlabel('Population size $N$')
+        plt.ylabel('Number of stinging bees')
         plt.tight_layout()        
         plt.savefig(f'../figures/results/gpr/{name}_posterior_{kernel.__name__.split("_",1)[1]}.png')
 
@@ -367,11 +367,11 @@ def main():
     # MORGANE BEE DATA
     # Dataset 1 PO - 60 samples
     colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist1_PO.txt")
-    #analyse_hist(colony_sizes_po, outputs_po, 0, 13, 60, 'beesMorgane1PO')
+    analyse_hist(colony_sizes_po, outputs_po, 0, 13, 60, 'beesMorgane1PO')
 
     # Dataset 1 IAA - 60 samples
     colony_sizes_iaa, outputs_iaa = read_hist_exp("bees_morgane/hist1_IAA.txt")
-    #analyse_hist(colony_sizes_iaa, outputs_iaa, 0, 13, 60, 'beesMorgane1IAA')
+    analyse_hist(colony_sizes_iaa, outputs_iaa, 0, 13, 60, 'beesMorgane1IAA')
 
     # Dataset 2 - samples: 68,68,60,56,52,48
     # erstmal mit mittlerer sample size (58) rechnen bis ichs angepasst hab? TODO: richtige sample size rechnen

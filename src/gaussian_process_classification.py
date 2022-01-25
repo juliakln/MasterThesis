@@ -507,7 +507,7 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name):
     plt.fill_between(x_s.ravel(), lowerbound.ravel(), upperbound.ravel(), alpha=0.2)
     plt.scatter(x, f, marker='o', c='blue')
     plt.yticks(np.arange(0, 1.1, step=0.1))
-    plt.title('Predictive probability together with 95% confidence interval')
+    #plt.title('Predictive probability together with 95% confidence interval')
     plt.xlabel('Population size $N$')
     plt.ylabel('Satisfaction probability')
     plt.savefig(f'../figures/results/gpc/{name}_posterior.png')
@@ -522,7 +522,7 @@ def coeff_variation(probs, name):
     plt.figure(figsize=(12,6))
     plt.plot(probs.keys(), c, lw=1.5, ls='-')
     plt.scatter(probs.keys(), c, marker='o', c='blue')
-    plt.title('Coefficient of variation for different thresholds as: sd/mean')
+    #plt.title('Coefficient of variation for different thresholds as: sd/mean')
     plt.xlabel('Threshold $t$')
     plt.ylabel('Coefficient of variation')
     plt.savefig(f'../figures/results/gpc/{name}_variation.png')
@@ -664,13 +664,13 @@ def main():
     """    
 
     # analyse experiment data from Morgane
-    colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist1_PO.txt")
+    colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist2.txt")
     probs = {}
-    threshs = np.arange(0.2, 0.7, 0.05)
+    threshs = np.arange(0, 1.1, 0.1)
     for t in threshs:
         print("t = ", t)
-        probs[t] = analyse_exp(colony_sizes_po, outputs_po, t, 60, 0.1, 1, 'bees_morgane1PO')
-    coeff_variation(probs, f'bees_morgane1PO')
+        probs[t] = analyse_exp(colony_sizes_po, outputs_po, t, 60, 0.1, 1, 'bees_morgane2')
+    coeff_variation(probs, f'bees_morgane2')
 
 
 
