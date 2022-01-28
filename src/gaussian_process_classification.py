@@ -35,30 +35,46 @@ correction = 1e-4
 
 """ Helper Functions """
 
-def plot_training(x, y, scale, name):
+def plot_training(x, y, name): 
     """ Plot observations as scatter plot showing the satisfaction probabilities
-    """
-    plt.figure(figsize=(12,6))
-    plt.scatter(x, y, marker='o', c='blue')
-    #plt.title(f'Training dataset with {scale} trajectories per input point')
-    plt.xlabel('Population size $N$')
-    plt.ylabel('Satisfaction probability')
-    plt.yticks(np.arange(0, 1.1, step=0.1))
-    plt.savefig(f'../figures/results/gpc/{name}_training.png')
 
-def plot_training3d(x, y, scale, name):
-    """ Plot observations as 3D scatter plot showing the satisfaction probabilities
+    Args:
+        x: Training inputs of 1 or 2 dimensions (datapoints, dim)
+        y: Training outputs, satisfactions (datapoints, 1)
+        name: string that specifies the dataset to save the plot
     """
-    fig, ax = plt.subplots(subplot_kw={"projection": "3d"}, figsize=(10,10), c='blue')
-    ax.scatter(x[:,0], x[:,1], y)
-    ax.set_zticks(np.arange(0, 1.1, step=0.1))
-    ax.set_xlabel('Parameter 1')
-    ax.set_ylabel('Parameter 2')
-    ax.set_zlabel('Satisfaction Probability')
-    plt.savefig(f'../figures/results/gpc/{name}_training3d.png')
+    # 1 dimension: 2D scatter plot
+    if len(x[0,:]) == 1:
+        print('warum')
+        plt.figure(figsize=(12,6))
+        plt.scatter(x, y, marker='o', c='blue')
+        #plt.title(f'Training dataset with {scale} trajectories per input point')
+        plt.xlabel('Population size $N$')
+        plt.ylabel('Satisfaction probability')
+        plt.yticks(np.arange(0, 1.1, step=0.1))
+        plt.savefig(f'../figures/results/gpc/{name}_training.png')
 
-def standardNormalCDF(x):
+    # 2 dimensions: 3D scatter plot
+    elif len(x[0,:]) == 2:
+        fig, ax = plt.subplots(subplot_kw={"projection": "3d"}, figsize=(10,10))
+        sca = ax.scatter(x[:,0], x[:,1], y, c=y, cmap=cm.coolwarm)
+        ax.set_zticks(np.arange(0, 1.1, step=0.1))
+        ax.set_xlabel('Parameter 1')
+        ax.set_ylabel('Parameter 2')
+        ax.set_zlabel('Satisfaction Probability')
+        fig.colorbar(sca, shrink=0.5)
+        plt.savefig(f'../figures/results/gpc/{name}_training3d.png')
+    
+    else:
+        raise ValueError('Classification supports only datasets of 1 or 2 dimensions.')
+
+def probitCDF(x):
     """ Compute probit values (probabilities from real values)
+    
+    Args: 
+        x: real value
+    Returns:
+        CDF of x, corresponds to probability
     """
     return 1/2 + 1/2 * erf(x * (1/np.sqrt(2)))
 
@@ -68,7 +84,7 @@ def standardNormalCDF(x):
 
 def marginal_moments(Term, gauss_LC, gauss_LC_t):
     """
-    Computes marginal moments
+    Computes marginal moments (Rasmussen 3.53)
     
     Args:
         Term: v_tilde, tau_tilde (datapoints, 2)
@@ -115,11 +131,11 @@ def gausshermite(nodes):
     Approximate integral of a formula by the sum of its functional values at some points
     
     Args:
-        nodes: number of Gauss-Hermite nodes (96,1)
+        nodes: number of Gauss-Hermite nodes 
         
     Returns:
-        x0: abscissas (96,1)
-        w0: weights (96,1)
+        x0: abscissas (nodes,1)
+        w0: weights (nodes,1)
     """
 
     x0 = np.zeros((nodes, 1))
@@ -506,12 +522,12 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name):
 
     # get probabilities with probit function for 1 dimension
     if len(x_s[0,:]) == 1:
-        probabilities = standardNormalCDF(fs * cached_denominator)
+        probabilities = probitCDF(fs * cached_denominator)
 
         # compute confidence bounds
-        lowerbound = standardNormalCDF((fs - 1.96 * np.sqrt(vfs).reshape(-1,1)) *
+        lowerbound = probitCDF((fs - 1.96 * np.sqrt(vfs).reshape(-1,1)) *
                                     cached_denominator)
-        upperbound = standardNormalCDF((fs + 1.96 * np.sqrt(vfs).reshape(-1,1)) *
+        upperbound = probitCDF((fs + 1.96 * np.sqrt(vfs).reshape(-1,1)) *
                                     cached_denominator)
 
         # plot data
@@ -526,13 +542,13 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name):
         plt.savefig(f'../figures/results/gpc/{name}_posterior.png')
     
     # get probabilities with probit function for 2 dimensions
-    elif len(x_s[0,:] == 2):
+    elif len(x_s[0,:]) == 2:
         points = int(np.ceil(np.sqrt(len(x_s))))
-        probabilities = standardNormalCDF(fs * cached_denominator).reshape(points,-1).T
+        probabilities = probitCDF(fs * cached_denominator).reshape(points,-1).T
         # compute confidence bounds
-        lowerbound = standardNormalCDF((fs - 1.96 * np.sqrt(vfs).reshape(-1,1)) *
+        lowerbound = probitCDF((fs - 1.96 * np.sqrt(vfs).reshape(-1,1)) *
                                     cached_denominator).reshape(points,-1).T
-        upperbound = standardNormalCDF((fs + 1.96 * np.sqrt(vfs).reshape(-1,1)) *
+        upperbound = probitCDF((fs + 1.96 * np.sqrt(vfs).reshape(-1,1)) *
                                     cached_denominator).reshape(points,-1).T
 
         # Contour Plot 
@@ -568,6 +584,9 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name):
         cbar.set_label('Satisfaction Probability')
         plt.savefig(f'../figures/results/gpc/{name}_posteriorSurfConf.png')
 
+    else:
+        print("Classification can only handle 1 or 2 dimensions.")
+
     return probabilities
 
 
@@ -602,7 +621,7 @@ def analyse_ex_paper():
     paramValueOutput = np.array([1,1,0.8,1,1,1,1,0.6,0.6,0.6,0.8,0,0.8,0.2,0.6,0,0.4,0.4,0,0.2]).reshape(-1,1) 
 
     # plot training data
-    plot_training(paramValueSet, paramValueOutput, scale, 'paper_ex')
+    plot_training(paramValueSet, paramValueOutput, 'paper_ex')
     print("Actual data (number of runs satisfying property): ", (paramValueOutput * scale).reshape(1,-1))
 
     # define default hyperparameters for kernels
@@ -650,7 +669,7 @@ def analyse_exp(col, out, t, scale, v, l, case):
         satisfactions.append(np.sum(bees[threshold:]))
     paramValueOutput = np.array(satisfactions).reshape(-1,1)
 
-    plot_training(paramValueSet, paramValueOutput, scale, case+str(round(t, 2)))
+    plot_training(paramValueSet, paramValueOutput, case+str(round(t, 2)))
     
     # default hyperparameters for kernel
     params = {'var': v,
@@ -686,7 +705,7 @@ def analyse_stoch(t, v, l):
     scale = 1000
     thresh = t
     paramValueSet, paramValueOutput = read_stochnet(thresh, scale)
-    plot_training(paramValueSet, paramValueOutput, scale, f'bees_stochnet_{thresh}')
+    plot_training(paramValueSet, paramValueOutput, f'bees_stochnet_{thresh}')
 
     # define default hyperparameters for kernels
     # variance = max-min / 2 for output values (if this is 0, set to 1)
@@ -706,6 +725,49 @@ def analyse_stoch(t, v, l):
     return p
 
 
+
+# TODO: noch anpassen!
+def analyse_stoch2(t, v, l):
+    """ 
+    For 2 dimensions -> vary N and one of the rates k
+    Analyze satisfaction probability for different population sizes to find out if function is robust
+    Input: histogram data for different population sizes n (simulated data - Stochnet)
+    Then compute GPC of satisfaction probabilty
+    Args:
+        t: threshold for "min. t bees are alive after experiment"
+        v: variance of kernel
+        l: lengthscale of kernel
+    Returns:
+        p: predictive probabilities
+
+    """
+
+    scale = 1000
+    thresh = t
+    paramValueSet, paramValueOutput = read_stochnet2(thresh, scale)
+    print(paramValueSet)
+    plot_training(paramValueSet, paramValueOutput,  f'bees_stochnet2_{thresh}')
+
+    
+    # define default hyperparameters for kernels
+    # variance = max-min / 2 for output values (if this is 0, set to 1)
+    # lengthscale = max - min / 10 for input values
+    params = {'var': v,
+            'ell': l,        
+            'ell_dim': [8, 0.01],
+            'var_b': 1,
+            'off': 1}
+   
+    mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, kernel_rbf_ard, params)
+
+    # derive predictive probabilities and confidence intervals, save plot
+    testset = np.linspace(15, 150, 500).reshape(-1,1)
+    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, f'bees_stochnet_{thresh}')
+
+    return p
+    
+
+
     
 
 def main():
@@ -720,7 +782,7 @@ def main():
         print("t = ", t)
         probs[t] = analyse_stoch(t, 0.01, 10)
     coeff_variation(probs, f'bees_stochnet')
-    """    
+    
 
     # analyse experiment data from Morgane
     colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist2.txt")
@@ -730,7 +792,9 @@ def main():
         print("t = ", t)
         probs[t] = analyse_exp(colony_sizes_po, outputs_po, t, 60, 0.1, 1, 'bees_morgane2')
     coeff_variation(probs, f'bees_morgane2')
+    """
 
+    analyse_stoch2(0.2, 0.1, [10, 0.095])
 
 
 
