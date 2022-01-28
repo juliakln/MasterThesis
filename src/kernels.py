@@ -31,17 +31,6 @@ def kernel_rbf(x, y, param):
 
 def kernel_linear(x, y, param):
     """ Linear Kernel
-    
-    Parameters:
-    x : numpy array with N dimensions of 1 element
-        First input vector of kernel
-    y : numpy array with N dimensions of 1 element
-        Second input vector of kernel
-    param : dictionary
-        Contains scale factor variance, variance_b, and offset off
-        
-    Returns: 
-        Covariance matrix of each pairwise combination of set of points
     """
     variance = param['var']
     variance_b = param['var_b']
@@ -51,23 +40,12 @@ def kernel_linear(x, y, param):
 
 def kernel_periodic(x, y, param):
     """ Periodic Kernel
-    
-    Parameters:
-    x : numpy array with N dimensions of 1 element
-        First input vector of kernel
-    y : numpy array with N dimensions of 1 element
-        Second input vector of kernel
-    param : dictionary
-        Contains scale factor variance, lengthscale, and period (distance between repetitions)
-        
-    Returns: 
-        Covariance matrix of each pairwise combination of set of points
     """
     variance = param['var']
     lengthscale = param['ell']
     period = param['per']
-    #return variance * np.exp((-(2*np.sin(np.dot(np.pi/period, np.linalg.norm((x.reshape(-1,1)-y.reshape(-1,1)), ord=1)))) /(lengthscale))**2)
     return variance * np.exp(-(2*np.sin((np.pi * (x - y.T))/period)**2)/ (lengthscale**2))
+
 
 def kernel_mult_r_l(x, y, param):
     """ Multiply RBF and Linear Kernel
@@ -99,3 +77,24 @@ def kernel_add_p_r(x, y, param):
     """
     return kernel_periodic(x, y, param) + kernel_rbf(x, y, param)
 
+
+def kernel_rbf_ard(x, y, param):
+    """ Radial Basis Function Kernel with Automatic Relevance Determination
+        for 2-dimensional case
+    Args:
+        x: First input vector of kernel (N,2)
+        y: Second input vector of kernel (N,2)
+        param: Hyperparameter of kernel: scale factor variance and 2 lengthscales ell
+        
+    Returns:
+        Covariance matrix of each pairwise combination of set of points
+    """
+    variance = param['var']
+    lengthscale = param['ell_dim']
+    eucdist = []
+    # for each dimension
+    for d in np.arange(2):
+        eucdist.append((np.sum(x[:,d].reshape(-1,1)**2,1).reshape(-1,1) + 
+                 np.sum(y[:,d].reshape(-1,1)**2,1) - 
+                 2*np.dot(x[:,d].reshape(-1,1), y[:,d].reshape(-1,1).T))/(lengthscale[d]**2))
+    return variance * np.exp(-0.5 * np.sum(eucdist,0))

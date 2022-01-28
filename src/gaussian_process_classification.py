@@ -5,28 +5,28 @@ Estimate satisfaction function for property
 
 """
 
-import numpy as np
-import numpy.matlib
-from scipy.stats import norm
-from scipy.special import erf 
-# scipy gives upper triangular matrix, numpy lower
-from scipy.linalg import cholesky
-import matplotlib.pyplot as plt
-from read_data import *
 import sys
 import warnings
-from numpy.core.fromnumeric import reshape
-warnings.filterwarnings("ignore")
+import numpy as np
+import numpy.matlib
+from pyparsing import col
+from scipy.stats import norm
+from scipy.special import erf 
+from scipy.linalg import cholesky  # scipy gives upper triangular matrix, numpy lower
+import matplotlib.pyplot as plt
+from matplotlib import cm
+from mpl_toolkits.mplot3d import Axes3D
+
+from read_data import *
 from create_data import *
 from kernels import *
+
+warnings.filterwarnings("ignore")
+
 
 
 
 """ Global Parameters """
-
-# define all kernels
-all_kernels = [kernel_linear, kernel_rbf, kernel_periodic, kernel_add_p_r, kernel_add_r_l,
-              kernel_mult_p_l, kernel_mult_p_r, kernel_mult_r_l]
 
 # correction for kernel computation to ensure numerical stability
 correction = 1e-4
@@ -40,11 +40,22 @@ def plot_training(x, y, scale, name):
     """
     plt.figure(figsize=(12,6))
     plt.scatter(x, y, marker='o', c='blue')
-    plt.title(f'Training dataset with {scale} trajectories per input point')
+    #plt.title(f'Training dataset with {scale} trajectories per input point')
     plt.xlabel('Population size $N$')
     plt.ylabel('Satisfaction probability')
     plt.yticks(np.arange(0, 1.1, step=0.1))
     plt.savefig(f'../figures/results/gpc/{name}_training.png')
+
+def plot_training3d(x, y, scale, name):
+    """ Plot observations as 3D scatter plot showing the satisfaction probabilities
+    """
+    fig, ax = plt.subplots(subplot_kw={"projection": "3d"}, figsize=(10,10), c='blue')
+    ax.scatter(x[:,0], x[:,1], y)
+    ax.set_zticks(np.arange(0, 1.1, step=0.1))
+    ax.set_xlabel('Parameter 1')
+    ax.set_ylabel('Parameter 2')
+    ax.set_zlabel('Satisfaction Probability')
+    plt.savefig(f'../figures/results/gpc/{name}_training3d.png')
 
 def standardNormalCDF(x):
     """ Compute probit values (probabilities from real values)
@@ -358,7 +369,7 @@ def logprobitpow(X, p, q):
 
 """ Analyses """
 
-def expectation_propagation(paramValueSet, paramValueOutputs, scale, params):
+def expectation_propagation(paramValueSet, paramValueOutputs, scale, kernel, params):
     """
     Expectation Propagation Algorithm
     """
@@ -366,7 +377,7 @@ def expectation_propagation(paramValueSet, paramValueOutputs, scale, params):
     datapoints = len(paramValueSet)
 
     # Prior
-    gauss_C = kernel_rbf(paramValueSet, paramValueSet, params) + correction * np.eye(datapoints) # covariance training set
+    gauss_C = kernel(paramValueSet, paramValueSet, params) + correction * np.eye(datapoints) # covariance training set
 
     gauss_LC_t = cholesky(gauss_C)  # cholesky decomposition, returns U from A=U'*U (U=L')
     gauss_LC = gauss_LC_t.T  # transpose LC' 
@@ -436,7 +447,7 @@ def expectation_propagation(paramValueSet, paramValueOutputs, scale, params):
     return mu_tilde, invC
 
 
-def perform_ep(x, f, scale, params):
+def perform_ep(x, f, scale, kernel, params):
     """
     Take care that matrix is positive definite, then perform EP
     If not, change kernel's hyperparameters and try again
@@ -446,7 +457,7 @@ def perform_ep(x, f, scale, params):
     mu_tilde = None
     invC = None
     try:
-        mu_tilde, invC = expectation_propagation(x, f, scale, params)
+        mu_tilde, invC = expectation_propagation(x, f, scale, kernel, params)
     except (np.linalg.linalg.LinAlgError, ValueError) as err:
         if ell > 20:
             print("NOT CONVERGING")
@@ -454,10 +465,11 @@ def perform_ep(x, f, scale, params):
             if any(s in str(err) for s in ['not positive definite', 'infs or NaNs']):
                 params = {'var': 1/3*var,
                         'ell': 1+ell,        
+                        'ell_dim': [2, 5],
                         'var_b': 1,
                         'off': 1}
                 print('nochmal')
-                perform_ep(x, f, scale, params)
+                perform_ep(x, f, scale, kernel, params)
             else:
                 raise
     return mu_tilde, invC
@@ -481,7 +493,7 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name):
     """
 
     # calculate variances of testset and covariances of test & training set (apply kernel)
-    kss = kernel(x_s, x_s, params) #+ correction * np.eye(testpoints) 
+    kss = kernel(x_s, x_s, params) + correction * np.eye(len(x_s)) 
     ks = kernel(x_s, x, params) #+ correction * np.eye(datapoints)
 
     # predictive mean 
@@ -492,25 +504,69 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name):
 
     cached_denominator = (1 / np.sqrt(1 + vfs)).reshape(-1,1)
 
-    # get probabilities with probit function
-    probabilities = standardNormalCDF(fs * cached_denominator)
+    # get probabilities with probit function for 1 dimension
+    if len(x_s[0,:]) == 1:
+        probabilities = standardNormalCDF(fs * cached_denominator)
 
-    # compute confidence bounds
-    lowerbound = standardNormalCDF((fs - 1.96 * np.sqrt(vfs).reshape(-1,1)) *
-                                cached_denominator)
-    upperbound = standardNormalCDF((fs + 1.96 * np.sqrt(vfs).reshape(-1,1)) *
-                                cached_denominator)
+        # compute confidence bounds
+        lowerbound = standardNormalCDF((fs - 1.96 * np.sqrt(vfs).reshape(-1,1)) *
+                                    cached_denominator)
+        upperbound = standardNormalCDF((fs + 1.96 * np.sqrt(vfs).reshape(-1,1)) *
+                                    cached_denominator)
 
-    # plot data
-    plt.figure(figsize=(12,6))
-    plt.plot(x_s, probabilities, lw=1.5, ls='-')
-    plt.fill_between(x_s.ravel(), lowerbound.ravel(), upperbound.ravel(), alpha=0.2)
-    plt.scatter(x, f, marker='o', c='blue')
-    plt.yticks(np.arange(0, 1.1, step=0.1))
-    plt.title('Predictive probability together with 95% confidence interval')
-    plt.xlabel('Population size $N$')
-    plt.ylabel('Satisfaction probability')
-    plt.savefig(f'../figures/results/gpc/{name}_posterior.png')
+        # plot data
+        plt.figure(figsize=(12,6))
+        plt.plot(x_s, probabilities, lw=1.5, ls='-')
+        plt.fill_between(x_s.ravel(), lowerbound.ravel(), upperbound.ravel(), alpha=0.2)
+        plt.scatter(x, f, marker='o', c='blue')
+        plt.yticks(np.arange(0, 1.1, step=0.1))
+        #plt.title('Predictive probability together with 95% confidence interval')
+        plt.xlabel('Population size $N$')
+        plt.ylabel('Satisfaction probability')
+        plt.savefig(f'../figures/results/gpc/{name}_posterior.png')
+    
+    # get probabilities with probit function for 2 dimensions
+    elif len(x_s[0,:] == 2):
+        points = int(np.ceil(np.sqrt(len(x_s))))
+        probabilities = standardNormalCDF(fs * cached_denominator).reshape(points,-1).T
+        # compute confidence bounds
+        lowerbound = standardNormalCDF((fs - 1.96 * np.sqrt(vfs).reshape(-1,1)) *
+                                    cached_denominator).reshape(points,-1).T
+        upperbound = standardNormalCDF((fs + 1.96 * np.sqrt(vfs).reshape(-1,1)) *
+                                    cached_denominator).reshape(points,-1).T
+
+        # Contour Plot 
+        p1 = np.unique(x_s[:,0])
+        p2 = np.unique(x_s[:,1])
+        plt.figure(figsize=(8, 8))
+        plt.contourf(p1, p2, probabilities)
+        plt.xlabel('Parameter 1')
+        plt.ylabel('Parameter 2')
+        cbar = plt.colorbar()
+        cbar.set_label('Satisfaction Probability')
+        plt.savefig(f'../figures/results/gpc/{name}_posteriorCont.png')
+
+        # Surface Plot with mean posterior and training points
+        l1, l2 = np.meshgrid(p1, p2)
+        fig, ax = plt.subplots(subplot_kw={"projection": "3d"}, figsize=(10,10))
+        surf = ax.plot_surface(l1, l2, probabilities, cmap=cm.coolwarm)
+        ax.scatter(x[:,0], x[:,1], f, col='black')
+        plt.xlabel('Parameter 1')
+        plt.ylabel('Parameter 2')
+        cbar = fig.colorbar(surf, shrink=0.5)
+        cbar.set_label('Satisfaction Probability')
+        plt.savefig(f'../figures/results/gpc/{name}_posteriorSurf.png')
+
+        # Surface Plot with confidence bounds and training points
+        fig, ax = plt.subplots(subplot_kw={"projection": "3d"}, figsize=(10,10))
+        surf = ax.plot_surface(l1, l2, lowerbound, cmap=cm.coolwarm, vmin=0.1, vmax=1)
+        surf = ax.plot_surface(l1, l2, upperbound, cmap=cm.coolwarm, vmin=0.1, vmax=1)
+        ax.scatter(x[:,0], x[:,1], f, color='black')
+        plt.xlabel('Parameter 1')
+        plt.ylabel('Parameter 2')
+        cbar = fig.colorbar(surf, shrink=0.5)
+        cbar.set_label('Satisfaction Probability')
+        plt.savefig(f'../figures/results/gpc/{name}_posteriorSurfConf.png')
 
     return probabilities
 
@@ -522,7 +578,7 @@ def coeff_variation(probs, name):
     plt.figure(figsize=(12,6))
     plt.plot(probs.keys(), c, lw=1.5, ls='-')
     plt.scatter(probs.keys(), c, marker='o', c='blue')
-    plt.title('Coefficient of variation for different thresholds as: sd/mean')
+    #plt.title('Coefficient of variation for different thresholds as: sd/mean')
     plt.xlabel('Threshold $t$')
     plt.ylabel('Coefficient of variation')
     plt.savefig(f'../figures/results/gpc/{name}_variation.png')
@@ -552,11 +608,12 @@ def analyse_ex_paper():
     # define default hyperparameters for kernels
     params = {'var': 1/5,
             'ell': 1,        
+            'ell_dim': [2, 5],
             'var_b': 1,
             'off': 1}
 
     # perform EP
-    mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, params)
+    mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, kernel_rbf, params)
     
     # derive predictive probabilities and confidence intervals, save plot
     testset = np.linspace(0, 5, 50).reshape(-1,1)
@@ -597,11 +654,12 @@ def analyse_exp(col, out, t, scale, v, l, case):
     
     # default hyperparameters for kernel
     params = {'var': v,
-            'ell': l,        
+            'ell': l,      
+            'ell_dim': [2, 5],  
             'var_b': 1,
             'off': 1}
     
-    mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, params)
+    mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, kernel_rbf, params)
 
     # derive predictive probabilities and confidence intervals, save plot
     testset = np.linspace(0, 13, 500).reshape(-1,1)
@@ -635,10 +693,11 @@ def analyse_stoch(t, v, l):
     # lengthscale = max - min / 10 for input values
     params = {'var': v,
             'ell': l,        
+            'ell_dim': [2, 5],
             'var_b': 1,
             'off': 1}
    
-    mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, params)
+    mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, kernel_rbf, params)
 
     # derive predictive probabilities and confidence intervals, save plot
     testset = np.linspace(15, 150, 500).reshape(-1,1)
@@ -664,13 +723,13 @@ def main():
     """    
 
     # analyse experiment data from Morgane
-    colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist1_PO.txt")
+    colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist2.txt")
     probs = {}
-    threshs = np.arange(0.2, 0.7, 0.05)
+    threshs = np.arange(0, 1.1, 0.1)
     for t in threshs:
         print("t = ", t)
-        probs[t] = analyse_exp(colony_sizes_po, outputs_po, t, 60, 0.1, 1, 'bees_morgane1PO')
-    coeff_variation(probs, f'bees_morgane1PO')
+        probs[t] = analyse_exp(colony_sizes_po, outputs_po, t, 60, 0.1, 1, 'bees_morgane2')
+    coeff_variation(probs, f'bees_morgane2')
 
 
 
