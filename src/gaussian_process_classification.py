@@ -753,8 +753,8 @@ def analyse_stoch2(t, v, l):
     # variance = max-min / 2 for output values (if this is 0, set to 1)
     # lengthscale = max - min / 10 for input values
     params = {'var': v,
-            'ell': l,        
-            'ell_dim': [8, 0.01],
+            'ell': 1,        
+            'ell_dim': l,
             'var_b': 1,
             'off': 1}
    

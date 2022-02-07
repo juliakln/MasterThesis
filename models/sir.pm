@@ -1,6 +1,6 @@
 ctmc
 
-const double ki = 0.001;
+const double ki;
 const double kr = 0.1;
 
 const int maxPop;
