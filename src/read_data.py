@@ -72,21 +72,22 @@ def read_stochnet2(thresh, scale):
 
     for dirpath, dirs, files in os.walk("../data/stochnet2"):
         for file in files:
-            nbees = int((file.split("_")[1]).split(".")[0])
-            k = float((file.split("_")[2]).rsplit(".", 1)[0])
-            with open(os.path.join(dirpath, file), 'r') as f:
-                data = f.read()
-                x_deadbees = (data.split("]")[0])[1:].replace(".","")
-                y_frequencies = (data.split("]")[1])[2:]
-                # compute number of living bees 
-                bees = np.array([nbees-int(i) for i in x_deadbees.split()])
-                freq = np.array([int(i) for i in y_frequencies.split()])
-                
-                threshold = np.ceil(thresh * nbees)            
-                satisfactions = np.sum(freq[bees >= threshold])
-                
-                collect_data[(nbees,k)] = satisfactions
-                
+            if file.startswith("bees"):
+                nbees = int((file.split("_")[1]).split(".")[0])
+                k = round(float((file.split("_")[2]).rsplit(".", 1)[0]), 4)
+                with open(os.path.join(dirpath, file), 'r') as f:
+                    data = f.read()
+                    x_deadbees = (data.split("]")[0])[1:].replace(".","")
+                    y_frequencies = (data.split("]")[1])[2:]
+                    # compute number of living bees 
+                    bees = np.array([nbees-int(i) for i in x_deadbees.split()])
+                    freq = np.array([int(i) for i in y_frequencies.split()])
+                    
+                    threshold = np.ceil(thresh * nbees)            
+                    satisfactions = np.sum(freq[bees >= threshold])
+                    
+                    collect_data[(nbees,k)] = satisfactions
+                    
     # population size n together with number of trajectories satisfying property, sort by n
     paramValueSet = np.zeros((len(collect_data), 2))
     paramValueOutputs = []

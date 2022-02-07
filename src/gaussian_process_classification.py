@@ -470,6 +470,7 @@ def perform_ep(x, f, scale, kernel, params):
     """
     var = params['var']
     ell = params['ell']
+    ell_dim = params['ell_dim']
     mu_tilde = None
     invC = None
     try:
@@ -481,10 +482,10 @@ def perform_ep(x, f, scale, kernel, params):
             if any(s in str(err) for s in ['not positive definite', 'infs or NaNs']):
                 params = {'var': 1/3*var,
                         'ell': 1+ell,        
-                        'ell_dim': [2, 5],
+                        'ell_dim': [ell_dim[0]+1, ell_dim[1]+0.005],
                         'var_b': 1,
                         'off': 1}
-                print('nochmal')
+                print('RUN AGAIN')
                 perform_ep(x, f, scale, kernel, params)
             else:
                 raise
@@ -555,34 +556,35 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name):
         p1 = np.unique(x_s[:,0])
         p2 = np.unique(x_s[:,1])
         plt.figure(figsize=(8, 8))
-        plt.contourf(p1, p2, probabilities)
-        plt.xlabel('Parameter 1')
-        plt.ylabel('Parameter 2')
+        plt.contourf(p1, p2, probabilities, levels=np.linspace(0,1,11))
+        plt.xlabel('$x1_*$')
+        plt.ylabel('$x2_*$', rotation=0)
         cbar = plt.colorbar()
         cbar.set_label('Satisfaction Probability')
+        plt.autoscale()
         plt.savefig(f'../figures/results/gpc/{name}_posteriorCont.png')
 
         # Surface Plot with mean posterior and training points
         l1, l2 = np.meshgrid(p1, p2)
         fig, ax = plt.subplots(subplot_kw={"projection": "3d"}, figsize=(10,10))
-        surf = ax.plot_surface(l1, l2, probabilities, cmap=cm.coolwarm)
-        ax.scatter(x[:,0], x[:,1], f, col='black')
-        plt.xlabel('Parameter 1')
-        plt.ylabel('Parameter 2')
+        surf = ax.plot_surface(l1, l2, probabilities, cmap=cm.coolwarm, vmin=0, vmax=1)
+        ax.scatter(x[:,0], x[:,1], f, c='black')
+        plt.xlabel('$x1_*$')
+        plt.ylabel('$x2_*$', rotation=0)
         cbar = fig.colorbar(surf, shrink=0.5)
         cbar.set_label('Satisfaction Probability')
-        plt.savefig(f'../figures/results/gpc/{name}_posteriorSurf.png')
+        plt.savefig(f'../figures/results/gpc/{name}_posteriorSurf.png', dpi=300)
 
         # Surface Plot with confidence bounds and training points
         fig, ax = plt.subplots(subplot_kw={"projection": "3d"}, figsize=(10,10))
-        surf = ax.plot_surface(l1, l2, lowerbound, cmap=cm.coolwarm, vmin=0.1, vmax=1)
-        surf = ax.plot_surface(l1, l2, upperbound, cmap=cm.coolwarm, vmin=0.1, vmax=1)
-        ax.scatter(x[:,0], x[:,1], f, color='black')
-        plt.xlabel('Parameter 1')
-        plt.ylabel('Parameter 2')
+        surf = ax.plot_surface(l1, l2, lowerbound, cmap=cm.coolwarm, vmin=0, vmax=1)
+        surf = ax.plot_surface(l1, l2, upperbound, cmap=cm.coolwarm, vmin=0, vmax=1)
+        ax.scatter(x[:,0], x[:,1], f, c='black')
+        plt.xlabel('$x1_*$')
+        plt.ylabel('$x2_*$', rotation=0)
         cbar = fig.colorbar(surf, shrink=0.5)
         cbar.set_label('Satisfaction Probability')
-        plt.savefig(f'../figures/results/gpc/{name}_posteriorSurfConf.png')
+        plt.savefig(f'../figures/results/gpc/{name}_posteriorSurfConf.png', dpi=300)
 
     else:
         print("Classification can only handle 1 or 2 dimensions.")
@@ -708,7 +710,7 @@ def analyse_stoch(t, v, l):
     plot_training(paramValueSet, paramValueOutput, f'bees_stochnet_{thresh}')
 
     # define default hyperparameters for kernels
-    # variance = max-min / 2 for output values (if this is 0, set to 1)
+    # variance = max-min / 2 for output values (if this is 0, set to 1) -> das noch scaled?
     # lengthscale = max - min / 10 for input values
     params = {'var': v,
             'ell': l,        
@@ -745,13 +747,14 @@ def analyse_stoch2(t, v, l):
     scale = 1000
     thresh = t
     paramValueSet, paramValueOutput = read_stochnet2(thresh, scale)
-    print(paramValueSet)
-    plot_training(paramValueSet, paramValueOutput,  f'bees_stochnet2_{thresh}')
+    plot_training(paramValueSet, paramValueOutput,  f'bees_stochnet2TRY_{thresh}')
 
     
     # define default hyperparameters for kernels
     # variance = max-min / 2 for output values (if this is 0, set to 1)
     # lengthscale = max - min / 10 for input values
+
+    
     params = {'var': v,
             'ell': 1,        
             'ell_dim': l,
@@ -761,8 +764,20 @@ def analyse_stoch2(t, v, l):
     mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, kernel_rbf_ard, params)
 
     # derive predictive probabilities and confidence intervals, save plot
-    testset = np.linspace(15, 150, 500).reshape(-1,1)
-    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, f'bees_stochnet_{thresh}')
+    # define test set for which posterior is derived
+
+    Ns = 225  # number of testpoints
+    ptest1 = [5, 100]  # range of uncertain input parameter p1
+    ptest2 = [0, 0.135]  # range of uncertain input parameter p2
+    npoints = int(np.ceil(Ns**(1/2)))  # number of points per dimension
+    testset = np.zeros((Ns,2))  # create grid of equally spaced input points
+    lin1 = np.linspace(ptest1[0], ptest1[1], npoints)
+    lin2 = np.linspace(ptest2[0], ptest2[1], npoints)
+    testset[:,0] = np.repeat(lin1, npoints)
+    testset[:,1] = np.tile(lin2, npoints)
+
+    #testset = np.linspace(15, 150, 500).reshape(-1,1)
+    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf_ard, params, f'bees_stochnet2TRY_{thresh}')
 
     return p
     
@@ -794,7 +809,8 @@ def main():
     coeff_variation(probs, f'bees_morgane2')
     """
 
-    analyse_stoch2(0.2, 0.1, [10, 0.095])
+    analyse_stoch2(0.15, 0.0005, [7, 0.0119])
+    #analyse_stoch2(0.01, 0.0005, [15, 0.01])
 
 
 
