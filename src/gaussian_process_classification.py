@@ -15,7 +15,7 @@ from scipy.special import erf
 from scipy.linalg import cholesky  # scipy gives upper triangular matrix, numpy lower
 import matplotlib.pyplot as plt
 from matplotlib import cm
-from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.offsetbox import AnchoredText
 
 from read_data import *
 from create_data import *
@@ -45,7 +45,6 @@ def plot_training(x, y, name):
     """
     # 1 dimension: 2D scatter plot
     if len(x[0,:]) == 1:
-        print('warum')
         plt.figure(figsize=(12,6))
         plt.scatter(x, y, marker='o', c='blue')
         #plt.title(f'Training dataset with {scale} trajectories per input point')
@@ -493,7 +492,7 @@ def perform_ep(x, f, scale, kernel, params):
 
 
 
-def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name):
+def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name, t):
     """ 
     Compute posterior distribution, derive predictive mean and variance
     Plot mean function together with 95% confidence interval
@@ -532,15 +531,21 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name):
                                     cached_denominator)
 
         # plot data
-        plt.figure(figsize=(12,6))
-        plt.plot(x_s, probabilities, lw=1.5, ls='-')
-        plt.fill_between(x_s.ravel(), lowerbound.ravel(), upperbound.ravel(), alpha=0.2)
-        plt.scatter(x, f, marker='o', c='blue')
+        fig, ax = plt.subplots(figsize=(12,6))
+        ax.plot(x_s, probabilities, '--', color='darkblue', lw=3, label='Mean')
+        ax.fill_between(x_s.ravel(), lowerbound.ravel(), upperbound.ravel(), alpha=0.2)
+        ax.plot(x, f, 'o', ms=8, color='darkblue')
         plt.yticks(np.arange(0, 1.1, step=0.1))
         #plt.title('Predictive probability together with 95% confidence interval')
-        plt.xlabel('Population size $N$')
-        plt.ylabel('Satisfaction probability')
-        plt.savefig(f'../figures/results/gpc/{name}_posterior.png')
+        at = AnchoredText(f't = {round(t, 2)}', prop=dict(size=22), frameon=True, loc='lower left')
+        at.patch.set_boxstyle("round,pad=0.,rounding_size=0.2")
+        ax.add_artist(at)
+        ax.set_xlabel('$X_*$', fontsize=18)
+        ax.set_ylabel('$f_*$', fontsize=18, rotation = 0)
+        plt.xticks(fontsize=16)
+        plt.yticks(fontsize=16)
+        plt.tight_layout()        
+        fig.savefig(f'../figures/results/gpc/{name}_posterior.png')
     
     # get probabilities with probit function for 2 dimensions
     elif len(x_s[0,:]) == 2:
@@ -594,15 +599,23 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name):
 
 def coeff_variation(probs, name):
     c = []
+    m = []
     for t in probs:
         c.append(np.std(probs[t])/np.mean(probs[t]))
+        m.append(np.mean(probs[t]))
     plt.figure(figsize=(12,6))
-    plt.plot(probs.keys(), c, lw=1.5, ls='-')
-    plt.scatter(probs.keys(), c, marker='o', c='blue')
+    plt.plot(probs.keys(), c, lw=3, ls='--', c='blue')
+    plt.scatter(probs.keys(), c, marker='o', c='blue', label='$c_v$')
+    plt.plot(probs.keys(), m, lw=3, ls='-', c='red')
+    plt.scatter(probs.keys(), m, marker='o', c='red', label='Mean')
     #plt.title('Coefficient of variation for different thresholds as: sd/mean')
-    plt.xlabel('Threshold $t$')
-    plt.ylabel('Coefficient of variation')
-    plt.savefig(f'../figures/results/gpc/{name}_variation.png')
+    plt.xlabel('$t$', fontsize=18)
+    #plt.ylabel('$c_v$, mean', fontsize=18)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.ylim((0,1))
+    plt.legend()
+    plt.savefig(f'../figures/results/gpc/{name}_variation.png', dpi=300)
 
 
 
@@ -643,7 +656,7 @@ def analyse_ex_paper():
 
 
 
-def analyse_exp(col, out, t, scale, v, l, case):
+def analyse_exp(col, out, t, scale, v, l, case, testend):
     """ 
     Analyze satisfaction probability for different population sizes to find out if function is robust
     Input: histogram data for different population sizes n (experimental data!)
@@ -683,8 +696,8 @@ def analyse_exp(col, out, t, scale, v, l, case):
     mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, kernel_rbf, params)
 
     # derive predictive probabilities and confidence intervals, save plot
-    testset = np.linspace(0, 13, 500).reshape(-1,1)
-    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, case+str(round(t,2)))
+    testset = np.linspace(0, testend, 100).reshape(-1,1)
+    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, case+str(round(t,2)), t)
 
     return p
     
@@ -798,18 +811,18 @@ def main():
         probs[t] = analyse_stoch(t, 0.01, 10)
     coeff_variation(probs, f'bees_stochnet')
     
-
+    """
     # analyse experiment data from Morgane
-    colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist2.txt")
+    colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist1_PO.txt")
     probs = {}
     threshs = np.arange(0, 1.1, 0.1)
     for t in threshs:
         print("t = ", t)
-        probs[t] = analyse_exp(colony_sizes_po, outputs_po, t, 60, 0.1, 1, 'bees_morgane2')
-    coeff_variation(probs, f'bees_morgane2')
-    """
+        probs[t] = analyse_exp(colony_sizes_po, outputs_po, t, 60, 0.25, 1.5, 'bees_morganeA1', 12)
+    coeff_variation(probs, f'bees_morganeA1')
+    
 
-    analyse_stoch2(0.15, 0.0005, [7, 0.0119])
+    #analyse_stoch2(0.15, 0.0005, [7, 0.0119])
     #analyse_stoch2(0.01, 0.0005, [15, 0.01])
 
 

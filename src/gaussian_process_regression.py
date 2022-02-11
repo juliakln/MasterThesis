@@ -1,19 +1,18 @@
 """
-Gaussian Process Regression for single value output
+Gaussian Process Regression 
 
-1) Predict values from random function
-
-2) Predict mean and variance of histogram, independently
-
-3) Predict mean and variance of histogram, multiple output GPR  
+... to predict the collective response (mean and variance of histogram)
+    for varying population sizes
 
 """
 
 import sys
 import warnings
-from numpy.core.fromnumeric import reshape
+
+from sympy import rotations
 warnings.filterwarnings("ignore")
 import matplotlib.pyplot as plt
+from matplotlib.offsetbox import AnchoredText
 import numpy as np
 from create_data import *
 from read_data import *
@@ -55,10 +54,7 @@ def comp_surv(freq, obs):
     Frequencies must be fractions, not integers!
     """
     freq = list(reversed(freq))
-    print(freq)
-    print(obs)
     obs = obs / np.max(obs)
-    print(obs)
     return np.sum(freq * obs)
 
 def comp_sd(freq, obs, mu):
@@ -108,7 +104,7 @@ def prior(kernel = kernel_rbf, x_s = np.array, plot = True, name = 'single'):
     return mu_prior, cov_prior
 
 
-def posterior(x, x_s, f, kernel = kernel_rbf, params = params, noise = 1e-15, optimized = True, plot = True, name = "single"):
+def posterior(x, x_s, f, kernel = kernel_rbf, params = params, noise = 1e-15, optimized = True, plot = True, name = "single", prediction = None):
     """ Derive Posterior Distribution using Equation (1)
     
     Parameters:
@@ -161,28 +157,40 @@ def posterior(x, x_s, f, kernel = kernel_rbf, params = params, noise = 1e-15, op
     v = np.linalg.solve(L, cov_s)
     sigma_s = cov_ss - v.T.dot(v)
 
+    cov = sigma_s
+    uncertainty = 1.96 * np.sqrt(np.diag(cov))
 
     if plot:
         x_s, mu = x_s.ravel(), mu_s.ravel()
-        cov = sigma_s
-        uncertainty = 1.96 * np.sqrt(np.diag(cov))
 
         samples = np.random.multivariate_normal(mu, cov, 5)
             
-        plt.figure(figsize=(12, 6))
-        plt.fill_between(x_s, mu + uncertainty, mu - uncertainty, alpha=0.2)
-        plt.plot(x_s, mu, '--', color='darkblue', lw=3, label='Mean')
-        # plot 5 samples?
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.fill_between(x_s, mu + uncertainty, mu - uncertainty, alpha=0.2)
+        ax.plot(x_s, mu, '--', color='darkblue', lw=3, label='Mean')
+        # plot 5 samples:
         #for i, sample in enumerate(samples):
         #    plt.plot(x_s, sample, lw=1.5)
         if x is not None:
-            plt.plot(x, f, 'o', ms=8, color='darkblue')
-        plt.legend()
-        plt.title(f'{name} output - posterior using {kernel.__name__.split("_",1)[1]} kernel')
-        plt.xlabel('Population size $N$')
-        plt.ylabel('Number of stinging bees')
+            ax.plot(x, f, 'o', ms=8, color='darkblue')
+        #plt.legend()
+        #plt.title(f'GPR posterior using {kernel.__name__.split("_",1)[1]} kernel')
+        at = AnchoredText(f'{kernel.__name__}', prop=dict(size=22), frameon=True, loc='upper left')
+        at.patch.set_boxstyle("round,pad=0.,rounding_size=0.2")
+        ax.add_artist(at)
+        ax.set_xlabel('$X_*$', fontsize=18)
+        ax.set_ylabel('$f_*$', fontsize=18, rotation = 0)
+        plt.xticks(fontsize=16)
+        plt.yticks(fontsize=16)
         plt.tight_layout()        
-        plt.savefig(f'../figures/results/gpr/{name}_posterior_{kernel.__name__.split("_",1)[1]}.png')
+        fig.savefig(f'../figures/results/gpr/{name}_posterior_{kernel.__name__.split("_",1)[1]}.png', dpi = 300)
+
+    if prediction is not None:
+        idx = np.absolute(x_s - prediction).argmin()
+        p = mu_s.item(idx)
+        ci = uncertainty.item(idx)
+        print(f'Prediction for x_* = {prediction}({name}, {kernel.__name__}): f_* = {p} +- {ci}')
+
 
     return mu_s, sigma_s
 
@@ -321,7 +329,7 @@ def analyse_single():
     print(f'\nBest results for {best_kernel.__name__.split("_",1)[1]}:', best_pred, '\nMSE: ', min_mse)
 
 
-def analyse_hist(colony_sizes, outputs, teststart, testend, samplesize, name):
+def analyse_hist(colony_sizes, outputs, teststart, testend, samplesize, name, prediction = None):
     """ Analyze mean and variance of histograms individually, with colony_sizes describing the range of
     the histogram and outputs describing the probabilities
     Compute 95% confidence interval around mean and variance to use as noise around data points
@@ -330,6 +338,8 @@ def analyse_hist(colony_sizes, outputs, teststart, testend, samplesize, name):
         plot mean function, 5 samples, and uncertainty
         find best model with LOOCV
     """
+    print(f"\n--- GPR ANALYSIS OF {name} ---")
+
     x = colony_sizes.reshape(-1,1)
     x_s = create_test_data(N_s = 100, start = teststart, end = testend).reshape(-1,1)
 
@@ -354,17 +364,17 @@ def analyse_hist(colony_sizes, outputs, teststart, testend, samplesize, name):
     min_mse_var, best_pred_var, best_kernel_var = 1000, 0, 0
     min_mse_surv, best_pred_surv, best_kernel_surv = 1000, 0, 0
     for kernel in all_kernels:
-        posterior(x, x_s, y_mean, kernel, params, noise_mean, True, True, f'{name}_mean') 
+        posterior(x, x_s, y_mean, kernel, params, noise_mean, True, True, f'{name}_mean', prediction) 
         pred_mean, mse_mean = loocv(x, x_s, y_mean, kernel, noise_mean)
         if mse_mean < min_mse_mean:
             min_mse_mean, best_pred_mean, best_kernel_mean = mse_mean, pred_mean, kernel
 
-        posterior(x, x_s, y_surv, kernel, params, noise_surv, True, True, f'{name}_surv') 
+        posterior(x, x_s, y_surv, kernel, params, noise_surv, True, True, f'{name}_surv', prediction) 
         pred_surv, mse_surv = loocv(x, x_s, y_surv, kernel, noise_surv)
         if mse_surv < min_mse_surv:
             min_mse_surv, best_pred_surv, best_kernel_surv = mse_surv, pred_surv, kernel
 
-        posterior(x, x_s, y_var, kernel, params, noise_var, True, True, f'{name}_var') 
+        posterior(x, x_s, y_var, kernel, params, noise_var, True, True, f'{name}_var', prediction) 
         pred_var, mse_var = loocv(x, x_s, y_var, kernel, noise_var)
         if mse_var < min_mse_var:
             min_mse_var, best_pred_var, best_kernel_var = mse_var, pred_var, kernel
@@ -392,17 +402,17 @@ def main():
     # MORGANE BEE DATA
     # Dataset 1 PO - 60 samples
     colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist1_PO.txt")
-    analyse_hist(colony_sizes_po, outputs_po, 0, 13, 60, 'beesMorgane1PO')
+    analyse_hist(colony_sizes = colony_sizes_po, outputs = outputs_po, 
+                 teststart = 0, testend = 13, samplesize = 60, name = 'beesMorgane1PO', prediction = 7)
 
     # Dataset 1 IAA - 60 samples
     colony_sizes_iaa, outputs_iaa = read_hist_exp("bees_morgane/hist1_IAA.txt")
-    analyse_hist(colony_sizes_iaa, outputs_iaa, 0, 13, 60, 'beesMorgane1IAA')
+    analyse_hist(colony_sizes_iaa, outputs_iaa, 0, 13, 60, 'beesMorgane1IAA', prediction = 7)
 
     # Dataset 2 - samples: 68,68,60,56,52,48
     # erstmal mit mittlerer sample size (58) rechnen bis ichs angepasst hab? TODO: richtige sample size rechnen
     colony_sizes_2, outputs_2 = read_hist_exp("bees_morgane/hist2.txt")
-    analyse_hist(colony_sizes_2, outputs_2, 0, 17, 58, 'beesMorgane2')
-
+    analyse_hist(colony_sizes_2, outputs_2, 0, 17, 58, 'beesMorgane2', prediction = 7)
 
 
 if __name__ == "__main__":
