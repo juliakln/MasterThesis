@@ -234,7 +234,7 @@ def nll(x, f, kernel=kernel_rbf, noise=1e-2):
                   'off': theta[3],
                   'per': theta[4]}
         cov_y = kernel(x, x, params)     # weniger noise wenn ich noise**2 nehm statt 1e-5
-        L = np.linalg.cholesky(cov_y + 1e-5 * np.eye(N) )
+        L = np.linalg.cholesky(cov_y + noise**2 * np.eye(N) )
         alpha_1 = np.linalg.solve(L, f)
         alpha = np.linalg.solve(L.T, alpha_1)
         
@@ -378,6 +378,8 @@ def analyse_hist(colony_sizes, outputs, teststart, testend, samplesize, name, pr
         pred_var, mse_var = loocv(x, x_s, y_var, kernel, noise_var)
         if mse_var < min_mse_var:
             min_mse_var, best_pred_var, best_kernel_var = mse_var, pred_var, kernel
+
+        print(kernel)
         
     print(f'\nMEAN - Best results for {best_kernel_mean.__name__.split("_",1)[1]}:', best_pred_mean, '\nMSE: ', min_mse_mean)
     print(f'\nSURV - Best results for {best_kernel_surv.__name__.split("_",1)[1]}:', best_pred_surv, '\nMSE: ', min_mse_surv)
@@ -399,6 +401,7 @@ def main():
     # TODO: automatically select x axis (= testset)? maybe add difference to last datapoint? and subtract from first datapoint? oder mean difference between datapoints?
     # oder halt manuell angeben? aber eigentlich doof, automatisch ist sch;ner 
 
+    """
     # MORGANE BEE DATA
     # Dataset 1 PO - 60 samples
     colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist1_PO.txt")
@@ -413,6 +416,12 @@ def main():
     # erstmal mit mittlerer sample size (58) rechnen bis ichs angepasst hab? TODO: richtige sample size rechnen
     colony_sizes_2, outputs_2 = read_hist_exp("bees_morgane/hist2.txt")
     analyse_hist(colony_sizes_2, outputs_2, 0, 17, 58, 'beesMorgane2', prediction = 7)
+
+    """
+
+    colony_sizes, outputs = read_stochnet_hist(1000)
+    analyse_hist(colony_sizes, outputs, 0, 165, 1000, 'stochnet')
+
 
 
 if __name__ == "__main__":

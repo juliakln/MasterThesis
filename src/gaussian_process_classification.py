@@ -545,7 +545,7 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name, t):
         plt.xticks(fontsize=16)
         plt.yticks(fontsize=16)
         plt.tight_layout()        
-        fig.savefig(f'../figures/results/gpc/{name}_posterior.png')
+        fig.savefig(f'../figures/results/gpc/{name}_posterior.png', dpi = 300)
     
     # get probabilities with probit function for 2 dimensions
     elif len(x_s[0,:]) == 2:
@@ -598,24 +598,32 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name, t):
 
 
 def coeff_variation(probs, name):
-    c = []
-    m = []
+    m = []  # mean
+    s = []  # standard deviation
+    cv = [] # coefficient of variation
     for t in probs:
-        c.append(np.std(probs[t])/np.mean(probs[t]))
         m.append(np.mean(probs[t]))
+        s.append(np.std(probs[t]))
+        cv.append(np.std(probs[t])/np.mean(probs[t]))
     plt.figure(figsize=(12,6))
-    plt.plot(probs.keys(), c, lw=3, ls='--', c='blue')
-    plt.scatter(probs.keys(), c, marker='o', c='blue', label='$c_v$')
-    plt.plot(probs.keys(), m, lw=3, ls='-', c='red')
-    plt.scatter(probs.keys(), m, marker='o', c='red', label='Mean')
+    plt.plot(probs.keys(), m, lw=3, ls='--')
+    plt.scatter(probs.keys(), m, marker='o', label='Mean')
+    plt.plot(probs.keys(), s, lw=3, ls='--')
+    plt.scatter(probs.keys(), s, marker='o', label='SD')
+    plt.plot(probs.keys(), cv, lw=3, ls='-')
+    plt.scatter(probs.keys(), cv, marker='o', label='$c_v$')
+    plt.axhline(y = 0.1, color = 'black', ls = ':', label = 'low $c_v$')
     #plt.title('Coefficient of variation for different thresholds as: sd/mean')
     plt.xlabel('$t$', fontsize=18)
     #plt.ylabel('$c_v$, mean', fontsize=18)
     plt.xticks(fontsize=16)
     plt.yticks(fontsize=16)
     plt.ylim((0,1))
-    plt.legend()
+    plt.legend(fontsize=18)
+    plt.tight_layout()        
     plt.savefig(f'../figures/results/gpc/{name}_variation.png', dpi=300)
+
+    print('Coefficients of variation: ', cv)
 
 
 
@@ -813,13 +821,14 @@ def main():
     
     """
     # analyse experiment data from Morgane
-    colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist1_PO.txt")
+    colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist2.txt")
     probs = {}
     threshs = np.arange(0, 1.1, 0.1)
+    #threshs = [0, 0.1]
     for t in threshs:
         print("t = ", t)
-        probs[t] = analyse_exp(colony_sizes_po, outputs_po, t, 60, 0.25, 1.5, 'bees_morganeA1', 12)
-    coeff_variation(probs, f'bees_morganeA1')
+        probs[t] = analyse_exp(colony_sizes_po, outputs_po, t, 58, 0.2, 1.75, 'bees_morganeC', 17)
+    coeff_variation(probs, f'bees_morganeC')
     
 
     #analyse_stoch2(0.15, 0.0005, [7, 0.0119])
