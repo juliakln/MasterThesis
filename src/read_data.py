@@ -1,6 +1,8 @@
 import os
 import sys
 import numpy as np
+import subprocess
+from collections import defaultdict
 
 
 def read_hist_exp(file):
@@ -150,11 +152,139 @@ def read_stochnet2(thresh, scale):
     return paramValueSet, (np.array(paramValueOutputs).reshape(-1,1))/scale
 
 
-def main():
-    c, o = read_stochnet_hist(1000)
-    print(c)
-    print(o)
+def simulate_bee_prism(paths):
+    # PRISM - ONLY RUN TO SIMULATE NEW DATA
+    # uncertain parameter values for training data
+    p1 = np.linspace(0, 1, 15) 
 
+    # simulate chain with Prism and save paths
+    for p in p1:
+        result = "/Users/juliaklein/Documents/uni/MasterThesis/data/dtmc_1/case_" + str(p) + ".txt"
+        resultfile = open(result ,"w")
+        resultfile.close()
+        resultfile = open(result, "r+")
+        prismcommand = "/Applications/prism-4.7-src/prism/bin/prism /Users/juliaklein/Documents/uni/MasterThesis/models/bee_3.pm /Users/juliaklein/Documents/uni/MasterThesis/models/bee_3_p.pctl -const p=" + str(p) + " -sim -simsamples " + str(paths) + " -exportresults " + result
+        prismprocess = subprocess.check_call(prismcommand, stdin=None, stdout=None , stderr=None, shell=True)
+        resultfile.close()
+
+def simulate_bee_prism_pmc():
+    p1 = np.linspace(0, 1, 100) 
+    # simulate chain with Prism and save paths
+    for p in p1:
+        result = "/Users/juliaklein/Documents/uni/MasterThesis/data/dtmc_1_pmc/case_" + str(p) + ".txt"
+        resultfile = open(result ,"w")
+        resultfile.close()
+        resultfile = open(result, "r+")
+        prismcommand = "/Applications/prism-4.7-src/prism/bin/prism /Users/juliaklein/Documents/uni/MasterThesis/models/bee_3.pm /Users/juliaklein/Documents/uni/MasterThesis/models/bee_3_p.pctl -const p=" + str(p) + " -exportresults " + result
+        prismprocess = subprocess.check_call(prismcommand, stdin=None, stdout=None , stderr=None, shell=True)
+        resultfile.close()
+
+def simulate_bee_prism2(paths):
+    # PRISM - ONLY RUN TO SIMULATE NEW DATA
+    # uncertain parameter values for training data
+    X = np.zeros((100,2))
+    p1 = np.linspace(0.1, 1, 10) 
+    p2 = np.linspace(0.1, 1, 10)
+    X[:,0] = np.repeat(p1, 10)
+    X[:,1] = np.tile(p2, 10)
+    # simulate chain with Prism and save paths
+    for x in X:
+        p1 = x[0]
+        p2 = x[1]
+        result = "/Users/juliaklein/Documents/uni/MasterThesis/data/dtmc_2/case_" + str(round(p1,1)) + "_" + str(round(p2,2)) + ".txt"
+        resultfile = open(result ,"w")
+        resultfile.close()
+        resultfile = open(result, "r+")
+        prismcommand = "/Applications/prism-4.7-src/prism/bin/prism /Users/juliaklein/Documents/uni/MasterThesis/models/bee_3.pm /Users/juliaklein/Documents/uni/MasterThesis/models/bee_3_p.pctl -const p=" + str(p1) + ",q1=" + str(p2) + " -sim -simsamples " + str(paths) + " -exportresults " + result
+        prismprocess = subprocess.check_call(prismcommand, stdin=None, stdout=None , stderr=None, shell=True)
+        resultfile.close()
+
+
+def read_bee_prism():
+    # save number of satisfactions for each value of p and experiment
+    satisfactions = defaultdict(list)
+    # read outcomes for all parameter values and compute number of satisfactions
+    for dirpath, dirs, files in os.walk("/Users/juliaklein/Documents/uni/MasterThesis/data/dtmc_1"):
+        for file in files:
+            if file.startswith("case"):
+                p = round(float((file.split("_")[1]).rsplit(".", 1)[0]), 4)
+                with open(os.path.join(dirpath, file), 'r') as f:
+                    data = f.readline()
+                    for last_line in f:
+                        pass
+                    S = float(last_line)
+                    satisfactions[p].append(S)
+
+    # Training data
+    paramValueSet = []
+    paramValueOutputs = []
+    for key in sorted(satisfactions):
+        paramValueSet.append(key)
+        paramValueOutputs.append(satisfactions[key])
+
+    return np.array(paramValueSet).reshape(-1,1), (np.array(paramValueOutputs).reshape(-1,1))
+
+def read_bee_prism_pmc():
+    # save probability of satisfactions for each population size and experiment
+    pmc_satisfactions = defaultdict(list)
+    # read outcomes for all population sizes and compute number of satisfactions
+    for dirpath, dirs, files in os.walk("/Users/juliaklein/Documents/uni/MasterThesis/data/dtmc_1_pmc"):
+        for file in files:
+            if file.startswith("case"):
+                p = round(float((file.split("_")[1]).rsplit(".", 1)[0]), 4)
+                with open(os.path.join(dirpath, file), 'r') as f:
+                    data = f.readline()
+                    for last_line in f:
+                        pass
+                    S = float(last_line)
+                    pmc_satisfactions[p].append(S)
+    # PMC data
+    pmc_X = []
+    pmc_f = []
+    for key in sorted(pmc_satisfactions):
+        pmc_X.append(key)
+        pmc_f.append(pmc_satisfactions[key])
+        
+    return np.array(pmc_X).reshape(-1,1), np.array(pmc_f).reshape(-1,1)
+
+
+def read_bee_prism2():
+    """ Data for 2 dimensions -> vary N and one of the rates k
+    Read txt files containing number of stinging bees after simulating CRN using stochnet
+    and collect how often property is satisfied for trajectory
+    """
+    satisfactions = defaultdict(list)
+
+    for dirpath, dirs, files in os.walk("../data/dtmc_2"):
+        for file in files:
+            if file.startswith("case"):
+                p1 = float((file.split("_")[1]))
+                p2 = float((file.split("_")[2]).rsplit(".", 1)[0])
+                with open(os.path.join(dirpath, file), 'r') as f:
+                    data = f.readline()
+                    for last_line in f:
+                        pass
+                    S = float(last_line)
+                    satisfactions[(p1, p2)] = S
+                    
+    # population size n together with number of trajectories satisfying property, sort by n
+    paramValueSet = np.zeros((len(satisfactions), 2))
+    paramValueOutputs = []
+    i = 0
+    for key in sorted(satisfactions):
+        paramValueSet[i,] = key
+        paramValueOutputs.append(satisfactions[key])
+        i += 1
+
+    return paramValueSet, (np.array(paramValueOutputs).reshape(-1,1))
+
+
+
+
+def main():
+    #simulate_bee_prism(50)
+    #simulate_bee_prism2(50)
+    simulate_bee_prism_pmc()
 
 if __name__ == "__main__":
     sys.exit(main())

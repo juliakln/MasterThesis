@@ -25,7 +25,6 @@ from scipy.optimize import minimize
 # define all hyperparameters for all kernels
 params = {'var':   0.5,
           'ell':   2,        # larger l -> less wiggles
-          'ell_dim': [2, 5],
           'var_b': 2,
           'off':   0.5,
           'per':   2}
@@ -33,6 +32,7 @@ params = {'var':   0.5,
 # define all kernels
 all_kernels = [kernel_linear, kernel_rbf, kernel_periodic, kernel_add_p_r, kernel_add_r_l,
               kernel_mult_p_l, kernel_mult_p_r, kernel_mult_r_l]
+#all_kernels = [kernel_rbf, kernel_linear, kernel_periodic, kernel_mult_r_l, kernel_add_r_l]
 
 
 """ Helper Functions """
@@ -104,7 +104,7 @@ def prior(kernel = kernel_rbf, x_s = np.array, plot = True, name = 'single'):
     return mu_prior, cov_prior
 
 
-def posterior(x, x_s, f, kernel = kernel_rbf, params = params, noise = 1e-15, optimized = True, plot = True, name = "single", prediction = None):
+def posterior(x, x_s, f, kernel = kernel_rbf, params = params, noise = 1e-15, optimized = True, initial_guess = [1, 1, 1, 1, 1], plot = True, name = "single", prediction = None):
     """ Derive Posterior Distribution using Equation (1)
     
     Parameters:
@@ -131,18 +131,21 @@ def posterior(x, x_s, f, kernel = kernel_rbf, params = params, noise = 1e-15, op
     """
 
     if optimized:
-        res = minimize(nll(x, f, kernel=kernel, noise=noise), [1, 1, 1, 1, 1],
-                    bounds=((1e-2, None), (1e-2, None), (1e-2, None), (1e-2, None), (1e-2, None)),
+        try:
+            res = minimize(nll(x, f, kernel=kernel, noise=noise), initial_guess,
+                    bounds=((1e-2, None), (1e-2, 50), (1e-2, None), (1e-2, None), (1e-2, None)),
                     method='L-BFGS-B')
-        # take optimized parameters for deriving posterior distribution
-        var_opt, ell_opt, var_b_opt, off_opt, per_opt = res.x
-        params = {'var': var_opt,
-                'ell': ell_opt,   
-                'ell_dim': [2, 5],     
-                'var_b': var_b_opt,
-                'off': off_opt,
-                'per': per_opt}
-        
+            # take optimized parameters for deriving posterior distribution
+            var_opt, ell_opt, var_b_opt, off_opt, per_opt = res.x
+            params = {'var': var_opt,
+                    'ell': ell_opt,   
+                    'var_b': var_b_opt,
+                    'off': off_opt,
+                    'per': per_opt}
+            print(params)
+        except (np.linalg.linalg.LinAlgError, ValueError) as err:
+            params = params
+            
     N, N_s = len(x), len(x_s)
     cov = kernel(x, x, params) + noise * np.eye(N)
     cov_s = kernel(x, x_s, params) 
@@ -245,7 +248,7 @@ def nll(x, f, kernel=kernel_rbf, noise=1e-2):
     return nll_stable
 
 
-def loocv(x, x_s, f, kernel=kernel_rbf, noise=1e-2):
+def loocv(x, x_s, f, kernel=kernel_rbf, noise=1e-2, initial_guess = [1, 1, 1, 1, 1]):
     """ Leave-one-out cross-validation to compare model performances
     For each input data point, remove it from training data, then:
         Optimize hyperparameters of specified kernel 
@@ -275,12 +278,12 @@ def loocv(x, x_s, f, kernel=kernel_rbf, noise=1e-2):
     for leave_out in range(N+1):
         X_new = np.delete(x, leave_out).reshape(-1,1)
         f_new = np.delete(f, leave_out).reshape(-1,1)
-        if len(noise)>1:
+        if hasattr(noise, "__len__"):
             noise_new = np.delete(noise, leave_out).reshape(-1,1)
         else:
             noise_new = noise
 
-        mu_s, cov_s = posterior(X_new, x_s, f_new, kernel, params, noise_new, True, False, 'single')
+        mu_s, cov_s = posterior(X_new, x_s, f_new, kernel, params, noise_new, True, initial_guess, False, 'single')
         
         # prediction for left out data point
         #idx_pred = np.absolute(x_s-x[leave_out]).argmin()
@@ -322,14 +325,14 @@ def analyse_single():
     print("\n--- Predict single values from random function ---")
     min_mse, best_pred, best_kernel = 1000, 0, 0
     for kernel in all_kernels:
-        posterior(x, x_s, y, kernel, params, noise, True, True, 'single')
+        posterior(x, x_s, y, kernel, params, noise, True, [1, 1, 1, 1, 1], True, 'single')
         pred, mse = loocv(x, x_s, y, kernel, noise)
         if mse < min_mse:
             min_mse, best_pred, best_kernel = mse, pred, kernel
     print(f'\nBest results for {best_kernel.__name__.split("_",1)[1]}:', best_pred, '\nMSE: ', min_mse)
 
 
-def analyse_hist(colony_sizes, outputs, teststart, testend, samplesize, name, prediction = None):
+def analyse_hist(colony_sizes, outputs, teststart, testend, testpoints, samplesize, name, prediction = None):
     """ Analyze mean and variance of histograms individually, with colony_sizes describing the range of
     the histogram and outputs describing the probabilities
     Compute 95% confidence interval around mean and variance to use as noise around data points
@@ -337,11 +340,20 @@ def analyse_hist(colony_sizes, outputs, teststart, testend, samplesize, name, pr
         derive posterior distribution with optimized hyperparameters
         plot mean function, 5 samples, and uncertainty
         find best model with LOOCV
+    Args:
+        colony_sizes: numpy array of population sizes
+        outputs: nested list of frequencies of each population size
+        teststart: first value of test set
+        testend: last value of test set
+        testpoints: number of points in test set
+        samplesize: number of observations for each population size
+        name: name of experiment
+        prediction: value of test set for which prediction and uncertainty should be computed
     """
     print(f"\n--- GPR ANALYSIS OF {name} ---")
 
     x = colony_sizes.reshape(-1,1)
-    x_s = create_test_data(N_s = 100, start = teststart, end = testend).reshape(-1,1)
+    x_s = create_test_data(N_s = testpoints, start = teststart, end = testend).reshape(-1,1)
 
     # calculate mean number of histograms with margin of 95% confidence interval
     y_mean = np.array([comp_mean(out, np.arange(len(out))) for out in outputs]).reshape(-1,1)
@@ -353,34 +365,37 @@ def analyse_hist(colony_sizes, outputs, teststart, testend, samplesize, name, pr
     # TODO: eigentlich ist noise hier asymmetric, weil confidence interval von variance asymmetric ist -> ich nehm hier aber erstmal nur obere
     # grenze vom interval als margin & mach das später; für 95% confidence und df=n-1=99 kriegen wir chi_(1-alpha/2)^2 = 73.361
     noise_var = np.array([(((99 * var) / 73.361) - var) for var in y_var])
-
     # calculate mean percentage of survivors for each colony size
     y_surv = np.array([comp_surv(out, np.arange(len(out))) for out in outputs]).reshape(-1,1)
-    noise_surv = np.array([comp_margin(t=1.962, sd=comp_sd(obs, np.arange(len(obs)), y_surv[i]), N=samplesize) for (obs,i) \
-                   in zip(outputs, np.arange(len(outputs)))])       # t for 95% with df=n-1=99
+    #noise_surv = np.array([comp_margin(t=1.962, sd=comp_sd(obs, np.arange(len(obs)), y_surv[i]), N=samplesize) / 1000 for (obs,i) \
+    #               in zip(outputs, np.arange(len(outputs)))])       # t for 95% with df=n-1=99
+    #noise_surv = np.repeat(1e-3, 28)
+    noise_surv = 1e-3
 
     print("\n--- Predict mean & variance of histograms independently ---")
     min_mse_mean, best_pred_mean, best_kernel_mean = 1000, 0, 0
     min_mse_var, best_pred_var, best_kernel_var = 1000, 0, 0
     min_mse_surv, best_pred_surv, best_kernel_surv = 1000, 0, 0
     for kernel in all_kernels:
-        posterior(x, x_s, y_mean, kernel, params, noise_mean, True, True, f'{name}_mean', prediction) 
+        print(kernel.__name__)
+        print('mean:')
+        posterior(x, x_s, y_mean, kernel, params, noise_mean, True, [1, 1, 1, 1, 1], True, f'{name}_mean', prediction) 
         pred_mean, mse_mean = loocv(x, x_s, y_mean, kernel, noise_mean)
         if mse_mean < min_mse_mean:
             min_mse_mean, best_pred_mean, best_kernel_mean = mse_mean, pred_mean, kernel
-
-        posterior(x, x_s, y_surv, kernel, params, noise_surv, True, True, f'{name}_surv', prediction) 
+        
+        print('surv:')
+        posterior(x, x_s, y_surv, kernel, params, noise_surv, True, [1, 10, 1, 1, 30], True, f'{name}_surv', prediction) 
         pred_surv, mse_surv = loocv(x, x_s, y_surv, kernel, noise_surv)
         if mse_surv < min_mse_surv:
             min_mse_surv, best_pred_surv, best_kernel_surv = mse_surv, pred_surv, kernel
-
-        posterior(x, x_s, y_var, kernel, params, noise_var, True, True, f'{name}_var', prediction) 
+        
+        print('var:')
+        posterior(x, x_s, y_var, kernel, params, noise_var, True, [1, 1, 1, 1, 1], True, f'{name}_var', prediction) 
         pred_var, mse_var = loocv(x, x_s, y_var, kernel, noise_var)
         if mse_var < min_mse_var:
             min_mse_var, best_pred_var, best_kernel_var = mse_var, pred_var, kernel
-
-        print(kernel)
-        
+            
     print(f'\nMEAN - Best results for {best_kernel_mean.__name__.split("_",1)[1]}:', best_pred_mean, '\nMSE: ', min_mse_mean)
     print(f'\nSURV - Best results for {best_kernel_surv.__name__.split("_",1)[1]}:', best_pred_surv, '\nMSE: ', min_mse_surv)
     print(f'\nVAR - Best results for {best_kernel_var.__name__.split("_",1)[1]}:', best_pred_var, '\nMSE: ', min_mse_var)
@@ -397,9 +412,6 @@ def main():
     # create normally distributed histogram data for colonies of size 2,3,4,5,7,10, N = sample size
     #colony_sizes, outputs = create_hist_output(N=1000)
     #analyse_hist(colony_sizes, outputs, samplesize=100, name="synth")
-
-    # TODO: automatically select x axis (= testset)? maybe add difference to last datapoint? and subtract from first datapoint? oder mean difference between datapoints?
-    # oder halt manuell angeben? aber eigentlich doof, automatisch ist sch;ner 
 
     """
     # MORGANE BEE DATA
@@ -419,8 +431,8 @@ def main():
 
     """
 
-    colony_sizes, outputs = read_stochnet_hist(1000)
-    analyse_hist(colony_sizes, outputs, 0, 165, 1000, 'stochnet')
+    colony_sizes, outputs = read_stochnet_hist(100)
+    analyse_hist(colony_sizes, outputs, 10, 150, 500, 100, 'stochnet')
 
 
 

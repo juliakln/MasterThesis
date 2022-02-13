@@ -62,6 +62,7 @@ def plot_training(x, y, name):
         ax.set_ylabel('Parameter 2')
         ax.set_zlabel('Satisfaction Probability')
         fig.colorbar(sca, shrink=0.5)
+        #ax.view_init(-150,60)
         plt.savefig(f'../figures/results/gpc/{name}_training3d.png')
     
     else:
@@ -492,7 +493,7 @@ def perform_ep(x, f, scale, kernel, params):
 
 
 
-def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name, t):
+def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name, t = None, pmc_x = None, pmc_f = None):
     """ 
     Compute posterior distribution, derive predictive mean and variance
     Plot mean function together with 95% confidence interval
@@ -537,9 +538,12 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name, t):
         ax.plot(x, f, 'o', ms=8, color='darkblue')
         plt.yticks(np.arange(0, 1.1, step=0.1))
         #plt.title('Predictive probability together with 95% confidence interval')
-        at = AnchoredText(f't = {round(t, 2)}', prop=dict(size=22), frameon=True, loc='lower left')
-        at.patch.set_boxstyle("round,pad=0.,rounding_size=0.2")
-        ax.add_artist(at)
+        if pmc_x is not None:
+            ax.plot(pmc_x, pmc_f, '+', ms=4, c='orange', label='PMC')    
+        if t is not None:
+            at = AnchoredText(f't = {round(t, 2)}', prop=dict(size=22), frameon=True, loc='lower left')
+            at.patch.set_boxstyle("round,pad=0.,rounding_size=0.2")
+            ax.add_artist(at)
         ax.set_xlabel('$X_*$', fontsize=18)
         ax.set_ylabel('$f_*$', fontsize=18, rotation = 0)
         plt.xticks(fontsize=16)
@@ -615,7 +619,7 @@ def coeff_variation(probs, name):
     plt.axhline(y = 0.1, color = 'black', ls = ':', label = 'low $c_v$')
     #plt.title('Coefficient of variation for different thresholds as: sd/mean')
     plt.xlabel('$t$', fontsize=18)
-    #plt.ylabel('$c_v$, mean', fontsize=18)
+    #plt.ylabel('$c_v$, mean', fontsize=18) 
     plt.xticks(fontsize=16)
     plt.yticks(fontsize=16)
     plt.ylim((0,1))
@@ -624,6 +628,7 @@ def coeff_variation(probs, name):
     plt.savefig(f'../figures/results/gpc/{name}_variation.png', dpi=300)
 
     print('Coefficients of variation: ', cv)
+    print('Standard deviations: ', s)
 
 
 
@@ -711,7 +716,7 @@ def analyse_exp(col, out, t, scale, v, l, case, testend):
     
 
 
-def analyse_stoch(t, v, l):
+def analyse_stoch(thresh, v, l, scale, teststart, testend, testpoints):
     """ 
     Analyze satisfaction probability for different population sizes to find out if function is robust
     Input: histogram data for different population sizes n (simulated data - Stochnet)
@@ -725,10 +730,10 @@ def analyse_stoch(t, v, l):
 
     """
 
-    scale = 1000
-    thresh = t
+    #scale = 1000
+    thresh
     paramValueSet, paramValueOutput = read_stochnet(thresh, scale)
-    plot_training(paramValueSet, paramValueOutput, f'bees_stochnet_{thresh}')
+    plot_training(paramValueSet, paramValueOutput, f'bees_stochnet_{round(thresh, 2)}')
 
     # define default hyperparameters for kernels
     # variance = max-min / 2 for output values (if this is 0, set to 1) -> das noch scaled?
@@ -742,15 +747,52 @@ def analyse_stoch(t, v, l):
     mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, kernel_rbf, params)
 
     # derive predictive probabilities and confidence intervals, save plot
-    testset = np.linspace(15, 150, 500).reshape(-1,1)
-    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, f'bees_stochnet_{thresh}')
+    testset = np.linspace(teststart, testend, testpoints).reshape(-1,1)
+    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, f'bees_stochnet_{round(thresh, 2)}', thresh)
+
+    return p
+
+
+def analyse_prism_bee(v, l, scale, teststart, testend, testpoints):
+    """ 
+    Analyze satisfaction probability for different population sizes to find out if function is robust
+    Input: histogram data for different population sizes n (simulated data - Stochnet)
+    Then compute GPC of satisfaction probabilty
+    Args:
+        t: threshold for "min. t bees are alive after experiment"
+        v: variance of kernel
+        l: lengthscale of kernel
+    Returns:
+        p: predictive probabilities
+
+    """
+    paramValueSet, paramValueOutput = read_bee_prism()
+    plot_training(paramValueSet, paramValueOutput, 'prism_bees')
+
+    # define default hyperparameters for kernels
+    # variance = max-min / 2 for output values (if this is 0, set to 1) -> das noch scaled?
+    # lengthscale = max - min / 10 for input values
+    params = {'var': v,
+            'ell': l,        
+            'ell_dim': [2, 5],
+            'var_b': 1,
+            'off': 1}
+   
+    mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, kernel_rbf, params)
+
+    # PMC results
+    pmc_x, pmc_f = read_bee_prism_pmc()
+
+    # derive predictive probabilities and confidence intervals, save plot
+    testset = np.linspace(teststart, testend, testpoints).reshape(-1,1)
+    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, 'prism_bees', None, pmc_x, pmc_f)
 
     return p
 
 
 
 # TODO: noch anpassen!
-def analyse_stoch2(t, v, l):
+def analyse_stoch2(thresh, v, l, scale):
     """ 
     For 2 dimensions -> vary N and one of the rates k
     Analyze satisfaction probability for different population sizes to find out if function is robust
@@ -765,10 +807,10 @@ def analyse_stoch2(t, v, l):
 
     """
 
-    scale = 1000
-    thresh = t
+    #scale = 1000
+    #thresh = t
     paramValueSet, paramValueOutput = read_stochnet2(thresh, scale)
-    plot_training(paramValueSet, paramValueOutput,  f'bees_stochnet2TRY_{thresh}')
+    plot_training(paramValueSet, paramValueOutput,  f'bees_stochnet2_{round(thresh, 4)}')
 
     
     # define default hyperparameters for kernels
@@ -789,7 +831,7 @@ def analyse_stoch2(t, v, l):
 
     Ns = 225  # number of testpoints
     ptest1 = [5, 100]  # range of uncertain input parameter p1
-    ptest2 = [0, 0.135]  # range of uncertain input parameter p2
+    ptest2 = [0, 0.1]  # range of uncertain input parameter p2
     npoints = int(np.ceil(Ns**(1/2)))  # number of points per dimension
     testset = np.zeros((Ns,2))  # create grid of equally spaced input points
     lin1 = np.linspace(ptest1[0], ptest1[1], npoints)
@@ -798,27 +840,75 @@ def analyse_stoch2(t, v, l):
     testset[:,1] = np.tile(lin2, npoints)
 
     #testset = np.linspace(15, 150, 500).reshape(-1,1)
-    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf_ard, params, f'bees_stochnet2TRY_{thresh}')
+    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf_ard, params, f'bees_stochnet2_{round(thresh, 4)}', thresh)
 
     return p
     
 
 
+def analyse_prism_bee2(v, l, scale):
+    """ 
+    For 2 dimensions -> vary N and one of the rates k
+    Analyze satisfaction probability for different population sizes to find out if function is robust
+    Input: histogram data for different population sizes n (simulated data - Stochnet)
+    Then compute GPC of satisfaction probabilty
+    Args:
+        t: threshold for "min. t bees are alive after experiment"
+        v: variance of kernel
+        l: lengthscale of kernel
+    Returns:
+        p: predictive probabilities
+
+    """
+    paramValueSet, paramValueOutput = read_bee_prism2()
+    plot_training(paramValueSet, paramValueOutput,  'prism_bees2')
+    
+    params = {'var': v,
+            'ell': 1,        
+            'ell_dim': l,
+            'var_b': 1,
+            'off': 1}
+   
+    mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, kernel_rbf_ard, params)
+
+    # derive predictive probabilities and confidence intervals, save plot
+    # define test set for which posterior is derived
+
+    Ns = 225  # number of testpoints
+    ptest1 = [0, 1]  # range of uncertain input parameter p1
+    ptest2 = [0, 1]  # range of uncertain input parameter p2
+    npoints = int(np.ceil(Ns**(1/2)))  # number of points per dimension
+    testset = np.zeros((Ns,2))  # create grid of equally spaced input points
+    lin1 = np.linspace(ptest1[0], ptest1[1], npoints)
+    lin2 = np.linspace(ptest2[0], ptest2[1], npoints)
+    testset[:,0] = np.repeat(lin1, npoints)
+    testset[:,1] = np.tile(lin2, npoints)
+
+    #testset = np.linspace(15, 150, 500).reshape(-1,1)
+    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf_ard, params, 'prism_bees2')
+
+    return p
+    
+
     
 
 def main():
+    # analyse example of Bortolussi paper to check if results are similar
     #analyse_ex_paper()
 
-    # analyse Stochnet simulations
+    # analyse Stochnet CRN simulations to infer fitness function
     # property = What is the probability that >= t bees are alive after each run?
     """
     probs = {}
     threshs = np.arange(0.09, 0.25, 0.02)
     for t in threshs:
         print("t = ", t)
-        probs[t] = analyse_stoch(t, 0.01, 10)
+        probs[t] = analyse_stoch(t, 0.15, 10, 100, 10, 155, 500)
     coeff_variation(probs, f'bees_stochnet')
-    
+    """
+    # find parameter k1 of CRN for fitness function with given threshold
+    #analyse_stoch2(thresh = 0.11, v = 0.0005, l = [10, 0.01], scale = 1000)
+
     """
     # analyse experiment data from Morgane
     colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist2.txt")
@@ -829,10 +919,13 @@ def main():
         print("t = ", t)
         probs[t] = analyse_exp(colony_sizes_po, outputs_po, t, 58, 0.2, 1.75, 'bees_morganeC', 17)
     coeff_variation(probs, f'bees_morganeC')
-    
+    """
 
-    #analyse_stoch2(0.15, 0.0005, [7, 0.0119])
-    #analyse_stoch2(0.01, 0.0005, [15, 0.01])
+    #PRISM DTMC example
+    analyse_prism_bee(0.05, 0.1, 50, 0, 1, 50)
+    #analyse_prism_bee2(0.05, [0.1,0.1], 50)
+
+
 
 
 
