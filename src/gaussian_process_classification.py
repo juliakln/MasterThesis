@@ -2,6 +2,7 @@
 Gaussian Process Classification
 
 Estimate satisfaction function for property
+1-dimensional or 1-dimensional input
 
 """
 
@@ -9,8 +10,6 @@ import sys
 import warnings
 import numpy as np
 import numpy.matlib
-from pyparsing import col
-from scipy.stats import norm
 from scipy.special import erf 
 from scipy.linalg import cholesky  # scipy gives upper triangular matrix, numpy lower
 import matplotlib.pyplot as plt
@@ -69,7 +68,7 @@ def plot_training(x, y, name):
         raise ValueError('Classification supports only datasets of 1 or 2 dimensions.')
 
 def probitCDF(x):
-    """ Compute probit values (probabilities from real values)
+    """ Compute inverse probit (= CDF) to map real values to probabilities 
     
     Args: 
         x: real value
@@ -300,8 +299,7 @@ def ep_update(cav_diagV, cav_m, Term, eps_damp, gauss_LikPar_p,
     logZterms = logZ + np.multiply(np.divide(m2, cav_diagV) + logV - 
                                    (np.divide(cumul1, Cumul[:,1].reshape(-1,1)) + cumul2), 1/2)
     
-    ### hier sind die ganzen if-bedingungen, um negative werte und anderes zu pruefen
-    # kommt aber nie in die bedingungen rein
+    # check negative variances, etc.
     c1 = np.zeros((datapoints,1))
     c2 = np.zeros((datapoints,1))
     for i in np.arange(datapoints):
@@ -388,6 +386,17 @@ def logprobitpow(X, p, q):
 def expectation_propagation(paramValueSet, paramValueOutputs, scale, kernel, params):
     """
     Expectation Propagation Algorithm
+
+    Args:
+        paramValueSet: training input values (datapoints, dim)
+        paramValueOutputs: training output values (datapoints, 1)
+        scale: sample size (number of observations for each data point)
+        kernel: RBF or RBF-ARD
+        params: hyperparameters of kernel
+
+    Returns:
+        mu_tilde: mean
+        invC: inverse of K + Sigma_tilde
     """
 
     datapoints = len(paramValueSet)
@@ -408,8 +417,7 @@ def expectation_propagation(paramValueSet, paramValueOutputs, scale, kernel, par
     # compute marginal moments mu and sigma^2
     _, gauss_m, gauss_diagV = marginal_moments(Term, gauss_LC, gauss_LC_t)
 
-    # related to likelihood approximation
-    # true observation values (number of trajectories satisfying property)
+    # true observation values (number of trajectories satisfying property) for likelihood
     gauss_LikPar_p = paramValueOutputs * scale
     gauss_LikPar_q = scale - gauss_LikPar_p 
 
@@ -446,10 +454,9 @@ def expectation_propagation(paramValueSet, paramValueOutputs, scale, kernel, par
         
         print("Iteration ", steps)
         
-    print("\nFinish")
+    print("\nFinish\n")
                 
     logZ = logZ - logZprior
-
     v_tilde = Term[:,0].reshape(-1,1)
     tau_tilde = Term[:,1].reshape(-1,1)
     diagSigma_tilde = 1/tau_tilde
@@ -467,24 +474,31 @@ def perform_ep(x, f, scale, kernel, params):
     """
     Take care that matrix is positive definite, then perform EP
     If not, change kernel's hyperparameters and try again
+
+    Args:
+        x: training inputs
+        f: training outputs
+        scale: sample size
+        kernel: RBF or RBF-ARD
+        params: hyperparameters of kernel
     """
     var = params['var']
     ell = params['ell']
     ell_dim = params['ell_dim']
-    mu_tilde = None
-    invC = None
+    mu_tilde, invC = None, None
     try:
         mu_tilde, invC = expectation_propagation(x, f, scale, kernel, params)
+    # catch if matrix computations give numerical errors, then try again
     except (np.linalg.linalg.LinAlgError, ValueError) as err:
-        if ell > 20:
+        if ell > 40:
             print("NOT CONVERGING")
         else:
             if any(s in str(err) for s in ['not positive definite', 'infs or NaNs']):
                 params = {'var': 1/3*var,
-                        'ell': 1+ell,        
-                        'ell_dim': [ell_dim[0]+1, ell_dim[1]+0.005],
-                        'var_b': 1,
-                        'off': 1}
+                          'ell': 1+ell,        
+                          'ell_dim': [ell_dim[0]+1, ell_dim[1]+0.005],
+                          'var_b': 1,
+                          'off': 1}
                 print('RUN AGAIN')
                 perform_ep(x, f, scale, kernel, params)
             else:
@@ -502,11 +516,17 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name, t = None, pmc
         x: training set (inputs)
         x_s: test set (inputs)
         f: training set (outputs)
-        mu_tilde: 
+        mu_tilde: mean
         invC: inverse of K + Sigma_tilde
         kernel: kernel function
         params: hyperparameters of kernel
+        name: name of experiment for saving plots
+        t: threshold to check fitness function, if available
+        pmc_x: X values of PMC, if available
+        pmc_f: outputs of PMC, if available
 
+    Returns:
+        p: predictive probabilities
     """
 
     # calculate variances of testset and covariances of test & training set (apply kernel)
@@ -602,6 +622,14 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name, t = None, pmc
 
 
 def coeff_variation(probs, name):
+    """
+    Compute coefficient of variation for different posterior probabilities,
+    plot together with mean and standard deviation of function
+
+    Args:
+        probs: list of probabilities of different posterior distributions
+        name: name of experiment for saving plot
+    """
     m = []  # mean
     s = []  # standard deviation
     cv = [] # coefficient of variation
@@ -619,7 +647,6 @@ def coeff_variation(probs, name):
     plt.axhline(y = 0.1, color = 'black', ls = ':', label = 'low $c_v$')
     #plt.title('Coefficient of variation for different thresholds as: sd/mean')
     plt.xlabel('$t$', fontsize=18)
-    #plt.ylabel('$c_v$, mean', fontsize=18) 
     plt.xticks(fontsize=16)
     plt.yticks(fontsize=16)
     plt.ylim((0,1))
@@ -628,18 +655,37 @@ def coeff_variation(probs, name):
     plt.savefig(f'../figures/results/gpc/{name}_variation.png', dpi=300)
 
     print('Coefficients of variation: ', cv)
-    print('Standard deviations: ', s)
+
+
+def calc_mse(x, x_s, f, probs):
+    """ Compute MSE for posterior function of the training data points
+    
+    Parameters:
+        x: Training data input
+        x_s: Test data input 
+        f: Training data output
+        probs: computed probabilities (posterior)
+        
+    Returns:  
+        mse: Average distance of predictions to true training data output
+    """
+    predictions = []
+    for i in x:
+        idx = np.absolute(x_s - i).argmin()
+        predictions.append(probs[idx])
+
+    mse = np.square(np.subtract(f.reshape(1,-1), predictions)).mean()
+
+    return mse
 
 
 
 
-""" Run complete program """
+""" Run complete program 
 
 def analyse_ex_paper():
-    """ 
     Run GPC for viral example of Smoothed Model Checking Paper (Bortolussi)
 
-    """
 
     # number of trajectories per input point
     scale = 5 
@@ -665,59 +711,61 @@ def analyse_ex_paper():
     # derive predictive probabilities and confidence intervals, save plot
     testset = np.linspace(0, 5, 50).reshape(-1,1)
     get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, 'paper_ex')
+"""
 
 
 
-
-def analyse_exp(col, out, t, scale, v, l, case, testend):
-    """ 
-    Analyze satisfaction probability for different population sizes to find out if function is robust
-    Input: histogram data for different population sizes n (experimental data!)
-    Then compute GPC of satisfaction probabilty
+def smmc_1dim(paramValueSet, paramValueOutput, name, scale, variance, ell, teststart, testend, testpoints, thresh = None):
+    """
+    Perform SMMC for 1-dimensional input
 
     Args:
-        col: list of colony sizes
-        out: nested list of frequency outputs after experiment
-        t: threshold for "min. t bees are alive after experiment" (fraction)
-        scale: sample size
-        v: variance of kernel
-        l: lengthscale of kernel
-        case: name of experiment for saving files
-    Returns:
-        p: predictive probabilities
-    """
-    paramValueSet = np.array(col).reshape(-1,1)
-    satisfactions = []
-    for i in np.arange(len(col)):
-        # compute number of living bees
-        bees = list(reversed(out[i]))
-        # compute threshold = how many bees do at least have to be alive?
-        threshold = int(np.ceil(t * col[i]))
-        # sum up the frequencies for all outcomes of experiment that satisfy the property
-        satisfactions.append(np.sum(bees[threshold:]))
-    paramValueOutput = np.array(satisfactions).reshape(-1,1)
+        paramValueSet: training inputs
+        paramValueOutput: training outputs (satisfaction probabilities)
+        name: name of experiment to save plots
+        scale: sample size (number of observations per data point)
+        variance: hyperparameter of kernel
+        ell: hyperparameter of kernel, 1- or 2-dim.
+        teststart: first value of testset
+        testend: last value of testset
+        testpoints: number of points of testset, for which posterior should be evaluated
+        thresh: threshold for fitness function, if available
 
-    plot_training(paramValueSet, paramValueOutput, case+str(round(t, 2)))
-    
-    # default hyperparameters for kernel
-    params = {'var': v,
-            'ell': l,      
-            'ell_dim': [2, 5],  
-            'var_b': 1,
-            'off': 1}
-    
+    Returns: 
+        p: predictive probabilities
+        mse: MSE of predictions to training outputs
+    """
+    if thresh is not None:
+        name = name + "_" + str(round(thresh, 4))
+
+    plot_training(paramValueSet, paramValueOutput, name)
+
+    # define default hyperparameters for kernels
+    # variance = max-min / 2 for output values (if this is 0, set to 1) -> das noch scaled?
+    # lengthscale = max - min / 10 for input values
+    params = {'var': variance,
+             'ell': ell,        
+             'ell_dim': [1, 1],
+             'var_b': 1,
+             'off': 1}
+   
     mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, kernel_rbf, params)
 
     # derive predictive probabilities and confidence intervals, save plot
-    testset = np.linspace(0, testend, 100).reshape(-1,1)
-    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, case+str(round(t,2)), t)
+    testset = np.linspace(teststart, testend, testpoints).reshape(-1,1)
+    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, name, thresh)
+
+    # compute MSE
+    mse = calc_mse(paramValueSet, testset, paramValueOutput, p)
+    print("MSE: ", mse)
 
     return p
-    
 
 
+
+"""
 def analyse_stoch(thresh, v, l, scale, teststart, testend, testpoints):
-    """ 
+    
     Analyze satisfaction probability for different population sizes to find out if function is robust
     Input: histogram data for different population sizes n (simulated data - Stochnet)
     Then compute GPC of satisfaction probabilty
@@ -728,7 +776,7 @@ def analyse_stoch(thresh, v, l, scale, teststart, testend, testpoints):
     Returns:
         p: predictive probabilities
 
-    """
+    
 
     #scale = 1000
     thresh
@@ -751,44 +799,7 @@ def analyse_stoch(thresh, v, l, scale, teststart, testend, testpoints):
     p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, f'bees_stochnet_{round(thresh, 2)}', thresh)
 
     return p
-
-
-def analyse_prism_bee(v, l, scale, teststart, testend, testpoints):
-    """ 
-    Analyze satisfaction probability for different population sizes to find out if function is robust
-    Input: histogram data for different population sizes n (simulated data - Stochnet)
-    Then compute GPC of satisfaction probabilty
-    Args:
-        t: threshold for "min. t bees are alive after experiment"
-        v: variance of kernel
-        l: lengthscale of kernel
-    Returns:
-        p: predictive probabilities
-
-    """
-    paramValueSet, paramValueOutput = read_bee_prism()
-    plot_training(paramValueSet, paramValueOutput, 'prism_bees')
-
-    # define default hyperparameters for kernels
-    # variance = max-min / 2 for output values (if this is 0, set to 1) -> das noch scaled?
-    # lengthscale = max - min / 10 for input values
-    params = {'var': v,
-            'ell': l,        
-            'ell_dim': [2, 5],
-            'var_b': 1,
-            'off': 1}
-   
-    mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, kernel_rbf, params)
-
-    # PMC results
-    pmc_x, pmc_f = read_bee_prism_pmc()
-
-    # derive predictive probabilities and confidence intervals, save plot
-    testset = np.linspace(teststart, testend, testpoints).reshape(-1,1)
-    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, 'prism_bees', None, pmc_x, pmc_f)
-
-    return p
-
+"""
 
 
 # TODO: noch anpassen!
@@ -890,39 +901,51 @@ def analyse_prism_bee2(v, l, scale):
     return p
     
 
-    
 
 def main():
     # analyse example of Bortolussi paper to check if results are similar
-    #analyse_ex_paper()
+    """
+    print('-----BORTOLUSSI EXAMPLE-----')
+    x = np.linspace(0.5, 5, 20).reshape(-1,1) 
+    f = np.array([1,1,0.8,1,1,1,1,0.6,0.6,0.6,0.8,0,0.8,0.2,0.6,0,0.4,0.4,0,0.2]).reshape(-1,1) 
+    smmc_1dim(x, f, 'paper_ex', 5, 1/5, 1, 0, 5, 50)
+    """
 
     # analyse Stochnet CRN simulations to infer fitness function
     # property = What is the probability that >= t bees are alive after each run?
     """
+    print('-----STOCHNET CRN 1 DIM FITNESS FUNCTION-----')
     probs = {}
     threshs = np.arange(0.09, 0.25, 0.02)
+    scale = 100
     for t in threshs:
         print("t = ", t)
-        probs[t] = analyse_stoch(t, 0.15, 10, 100, 10, 155, 500)
+        x, f = read_stochnet(thresh, scale)
+        probs[t], _ = smmc_dim1(x, f, 'bees_stochnet', scale, 0.15, 10, 10, 155, 500, t)
     coeff_variation(probs, f'bees_stochnet')
     """
+
     # find parameter k1 of CRN for fitness function with given threshold
     #analyse_stoch2(thresh = 0.11, v = 0.0005, l = [10, 0.01], scale = 1000)
 
     """
     # analyse experiment data from Morgane
-    colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist2.txt")
+    print('-----EXPERIMENTAL DATA 1 DIM FITNESS FUNCTION-----')
+    col, outputs = read_hist_exp("bees_morgane/hist2.txt")
     probs = {}
     threshs = np.arange(0, 1.1, 0.1)
-    #threshs = [0, 0.1]
     for t in threshs:
         print("t = ", t)
-        probs[t] = analyse_exp(colony_sizes_po, outputs_po, t, 58, 0.2, 1.75, 'bees_morganeC', 17)
+        x, f = read_exp_smmc(col, outputs, t)
+        probs[t] = smmc_1dim(x, f, 'bees_morganeC', 58, 0.2, 1.75, 0, 17, 100, t)
     coeff_variation(probs, f'bees_morganeC')
     """
 
     #PRISM DTMC example
-    analyse_prism_bee(0.05, 0.1, 50, 0, 1, 50)
+    print('-----PRISM DTMC 1 DIM-----\n')
+    x, f = read_bee_prism()
+    smmc_1dim(x, f, 'prism_bees', 50, 0.05, 0.1, 0, 1, 50)
+    #analyse_prism_bee(0.05, 0.1, 50, 0, 1, 50)
     #analyse_prism_bee2(0.05, [0.1,0.1], 50)
 
 

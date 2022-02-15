@@ -32,6 +32,31 @@ def read_hist_exp(file):
 
     return colony_sizes, outputs
 
+def read_exp_smmc(col, out, t):
+    """ 
+    Read satisfaction probability of experimental data from histograms
+
+    Args:
+        col: list of colony sizes
+        out: nested list of frequency outputs after experiment
+        t: threshold for "min. t bees are alive after experiment" (fraction)
+    Returns:
+        training input and output
+    """
+    paramValueSet = np.array(col).reshape(-1,1)
+    satisfactions = []
+    for i in np.arange(len(col)):
+        # compute number of living bees
+        bees = list(reversed(out[i]))
+        # compute threshold = how many bees do at least have to be alive?
+        threshold = int(np.ceil(t * col[i]))
+        # sum up the frequencies for all outcomes of experiment that satisfy the property
+        satisfactions.append(np.sum(bees[threshold:]))
+    paramValueOutput = np.array(satisfactions).reshape(-1,1)
+
+    return paramValueSet, paramValueOutput
+    
+
 
 def read_stochnet_hist(scale):
     """ Read txt files containing number of stinging bees after simulating CRN using stochnet
