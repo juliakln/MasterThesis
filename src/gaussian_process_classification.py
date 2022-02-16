@@ -55,7 +55,7 @@ def plot_training(x, y, name):
     # 2 dimensions: 3D scatter plot
     elif len(x[0,:]) == 2:
         fig, ax = plt.subplots(subplot_kw={"projection": "3d"}, figsize=(10,10))
-        sca = ax.scatter(x[:,0], x[:,1], y, c=y, cmap=cm.coolwarm)
+        sca = ax.scatter(x[:,0], x[:,1], y, c=y, s=40, cmap=cm.coolwarm)
         ax.set_zticks(np.arange(0, 1.1, step=0.1))
         ax.set_xlabel('Parameter 1')
         ax.set_ylabel('Parameter 2')
@@ -670,11 +670,20 @@ def calc_mse(x, x_s, f, probs):
         mse: Average distance of predictions to true training data output
     """
     predictions = []
-    for i in x:
-        idx = np.absolute(x_s - i).argmin()
-        predictions.append(probs[idx])
+    if len(x_s[0,:]) == 1:
+        for i in x:
+            idx = np.absolute(x_s - i).argmin()
+            predictions.append(probs[idx])
 
-    mse = np.square(np.subtract(f.reshape(1,-1), predictions)).mean()
+        mse = np.square(np.subtract(f.reshape(1,-1), predictions)).mean()
+    elif len(x_s[0,:]) == 2:
+        probs = probs.reshape(len(x_s),-1)
+        for i in x:
+            idx = np.absolute(x_s - i).argmin()
+            if idx > len(x_s):
+                idx = len(x_s) - 1
+            predictions.append(probs[idx])
+        mse = np.square(np.subtract(f.reshape(1,-1), predictions)).mean()
 
     return mse
 
@@ -853,6 +862,10 @@ def analyse_stoch2(thresh, v, l, scale):
     #testset = np.linspace(15, 150, 500).reshape(-1,1)
     p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf_ard, params, f'bees_stochnet2_{round(thresh, 4)}', thresh)
 
+    # compute MSE
+    mse = calc_mse(paramValueSet, testset, paramValueOutput, p)
+    print("MSE: ", mse)
+
     return p
     
 
@@ -873,6 +886,7 @@ def analyse_prism_bee2(v, l, scale):
     """
     paramValueSet, paramValueOutput = read_bee_prism2()
     plot_training(paramValueSet, paramValueOutput,  'prism_bees2')
+    
     
     params = {'var': v,
             'ell': 1,        
@@ -898,7 +912,12 @@ def analyse_prism_bee2(v, l, scale):
     #testset = np.linspace(15, 150, 500).reshape(-1,1)
     p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf_ard, params, 'prism_bees2')
 
+    # compute MSE
+    mse = calc_mse(paramValueSet, testset, paramValueOutput, p)
+    print("MSE: ", mse)
+
     return p
+    
     
 
 
@@ -920,33 +939,34 @@ def main():
     scale = 100
     for t in threshs:
         print("t = ", t)
-        x, f = read_stochnet(thresh, scale)
-        probs[t], _ = smmc_dim1(x, f, 'bees_stochnet', scale, 0.15, 10, 10, 155, 500, t)
+        x, f = read_stochnet(t, scale)
+        probs[t] = smmc_1dim(x, f, 'bees_stochnet', scale, 0.15, 10, 10, 155, 500, t)
     coeff_variation(probs, f'bees_stochnet')
     """
 
     # find parameter k1 of CRN for fitness function with given threshold
     #analyse_stoch2(thresh = 0.11, v = 0.0005, l = [10, 0.01], scale = 1000)
 
-    """
+    
     # analyse experiment data from Morgane
+    """
     print('-----EXPERIMENTAL DATA 1 DIM FITNESS FUNCTION-----')
-    col, outputs = read_hist_exp("bees_morgane/hist2.txt")
+    col, outputs = read_hist_exp("bees_morgane/hist1_IAA.txt")
     probs = {}
     threshs = np.arange(0, 1.1, 0.1)
     for t in threshs:
         print("t = ", t)
         x, f = read_exp_smmc(col, outputs, t)
-        probs[t] = smmc_1dim(x, f, 'bees_morganeC', 58, 0.2, 1.75, 0, 17, 100, t)
-    coeff_variation(probs, f'bees_morganeC')
+        probs[t] = smmc_1dim(x, f, 'bees_morganeB', 60, 0.2, 1.75, 0, 12, 100, t)
+    coeff_variation(probs, f'bees_morganeB')
     """
 
     #PRISM DTMC example
-    print('-----PRISM DTMC 1 DIM-----\n')
-    x, f = read_bee_prism()
-    smmc_1dim(x, f, 'prism_bees', 50, 0.05, 0.1, 0, 1, 50)
-    #analyse_prism_bee(0.05, 0.1, 50, 0, 1, 50)
-    #analyse_prism_bee2(0.05, [0.1,0.1], 50)
+    #print('-----PRISM DTMC 1 DIM-----\n')
+    #x, f = read_bee_prism()
+    #smmc_1dim(x, f, 'prism_bees', 50, 0.05, 0.1, 0, 1, 50)
+    #print('-----PRISM DTMC 2 DIM-----\n')
+    analyse_prism_bee2(0.05, [0.1,0.1], 50)
 
 
 
