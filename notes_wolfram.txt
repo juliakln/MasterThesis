@@ -1,5 +1,0 @@
-Markov Decision process, agent & environment, policy + reward
-
-function irgendwie machen dass bees von aggresiv zu nicht aggressiv werden?
-oder saturation von irgendwas?
-pheromone so als kurve, also dass sie nicht mehr stingen wenn viel pheromone da ist?
