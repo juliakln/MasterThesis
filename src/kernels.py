@@ -1,5 +1,5 @@
 """
-Define kernels for Gaussian Process Regression
+Define kernels for Gaussian Processes
 """
 
 import warnings

@@ -3,7 +3,6 @@ Create data to test methodology
 
 1. Single value output for n = 2, 3, 4, 5, 7, 10 bees
 
-
 2. Histogram output for n = 2, 3, 4, 5, 7, 10 bees
     Follows normal distribution
 """

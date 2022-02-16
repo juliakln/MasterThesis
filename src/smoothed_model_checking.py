@@ -1,8 +1,9 @@
 """
-Gaussian Process Classification
+Smoothed Model Checking (Bortolussi et al. 2016)
+based on Gaussian Process Classification
 
 Estimate satisfaction function for property
-1-dimensional or 1-dimensional input
+1-dimensional or 2-dimensional input
 
 """
 
@@ -17,7 +18,6 @@ from matplotlib import cm
 from matplotlib.offsetbox import AnchoredText
 
 from read_data import *
-from create_data import *
 from kernels import *
 
 warnings.filterwarnings("ignore")
@@ -50,7 +50,7 @@ def plot_training(x, y, name):
         plt.xlabel('Population size $N$')
         plt.ylabel('Satisfaction probability')
         plt.yticks(np.arange(0, 1.1, step=0.1))
-        plt.savefig(f'../figures/results/gpc/{name}_training.png')
+        plt.savefig(f'../figures/results/smmc/{name}_training.png')
 
     # 2 dimensions: 3D scatter plot
     elif len(x[0,:]) == 2:
@@ -62,7 +62,7 @@ def plot_training(x, y, name):
         ax.set_zlabel('Satisfaction Probability')
         fig.colorbar(sca, shrink=0.5)
         #ax.view_init(-150,60)
-        plt.savefig(f'../figures/results/gpc/{name}_training3d.png')
+        plt.savefig(f'../figures/results/smmc/{name}_training3d.png')
     
     else:
         raise ValueError('Classification supports only datasets of 1 or 2 dimensions.')
@@ -87,11 +87,11 @@ def marginal_moments(Term, gauss_LC, gauss_LC_t):
     
     Args:
         Term: v_tilde, tau_tilde (datapoints, 2)
-        gauss_LC:
-        gauss_LC_t: 
+        gauss_LC: Cholesky decomposition of Sigma
+        gauss_LC_t
         
     Returns:
-        logZappx: 
+        logZappx
         gauss_m: mu (datapoints,1)
         gauss_diagV: diagonal of sigma^2 (datapoints,1)
     """
@@ -277,8 +277,7 @@ def ep_update(cav_diagV, cav_m, Term, eps_damp, gauss_LikPar_p,
         
     Returns:
         TermNew: updated v_tilde, tau_tilde (datapoints,2)
-        logZterms:
-        logZ:
+        logZterms, logZ
     """
     
     datapoints = len(Term)
@@ -314,7 +313,6 @@ def ep_update(cav_diagV, cav_m, Term, eps_damp, gauss_LikPar_p,
         else:
             c1[k] = Cumul[k,0] / Cumul[k,1] - cav_m[k] / cav_diagV[k]
     
-
     for j in np.arange(datapoints):
         if (1/c2[j] + cav_diagV[j]) < 0:
             c1[j] = Term[j,0]
@@ -339,7 +337,7 @@ def logprobitpow(X, p, q):
         q: number of runs not satisfying property, repeated (datapoints,96)
         
     Returns:
-        Za+Zb:
+        Za+Zb
     """
     
     threshold = -np.sqrt(2)*5
@@ -377,8 +375,6 @@ def logprobitpow(X, p, q):
     Zb = np.multiply(y, numpy.matlib.repmat(q.reshape(-1,1), 1, 96))
     return Za + Zb
     
-
-
 
 
 """ Analyses """
@@ -559,7 +555,8 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name, t = None, pmc
         plt.yticks(np.arange(0, 1.1, step=0.1))
         #plt.title('Predictive probability together with 95% confidence interval')
         if pmc_x is not None:
-            ax.plot(pmc_x, pmc_f, '+', ms=4, c='orange', label='PMC')    
+            ax.plot(pmc_x, pmc_f, '+', ms=6, c='orange', label='PMC')    
+            plt.legend()
         if t is not None:
             at = AnchoredText(f't = {round(t, 2)}', prop=dict(size=22), frameon=True, loc='lower left')
             at.patch.set_boxstyle("round,pad=0.,rounding_size=0.2")
@@ -569,7 +566,7 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name, t = None, pmc
         plt.xticks(fontsize=16)
         plt.yticks(fontsize=16)
         plt.tight_layout()        
-        fig.savefig(f'../figures/results/gpc/{name}_posterior.png', dpi = 300)
+        fig.savefig(f'../figures/results/smmc/{name}_posterior.png', dpi = 300)
     
     # get probabilities with probit function for 2 dimensions
     elif len(x_s[0,:]) == 2:
@@ -591,7 +588,7 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name, t = None, pmc
         cbar = plt.colorbar()
         cbar.set_label('Satisfaction Probability')
         plt.autoscale()
-        plt.savefig(f'../figures/results/gpc/{name}_posteriorCont.png')
+        plt.savefig(f'../figures/results/smmc/{name}_posteriorCont.png')
 
         # Surface Plot with mean posterior and training points
         l1, l2 = np.meshgrid(p1, p2)
@@ -602,7 +599,7 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name, t = None, pmc
         plt.ylabel('$x2_*$', rotation=0)
         cbar = fig.colorbar(surf, shrink=0.5)
         cbar.set_label('Satisfaction Probability')
-        plt.savefig(f'../figures/results/gpc/{name}_posteriorSurf.png', dpi=300)
+        plt.savefig(f'../figures/results/smmc/{name}_posteriorSurf.png', dpi=300)
 
         # Surface Plot with confidence bounds and training points
         fig, ax = plt.subplots(subplot_kw={"projection": "3d"}, figsize=(10,10))
@@ -613,7 +610,7 @@ def get_posterior(x, x_s, f, mu_tilde, invC, kernel, params, name, t = None, pmc
         plt.ylabel('$x2_*$', rotation=0)
         cbar = fig.colorbar(surf, shrink=0.5)
         cbar.set_label('Satisfaction Probability')
-        plt.savefig(f'../figures/results/gpc/{name}_posteriorSurfConf.png', dpi=300)
+        plt.savefig(f'../figures/results/smmc/{name}_posteriorSurfConf.png', dpi=300)
 
     else:
         print("Classification can only handle 1 or 2 dimensions.")
@@ -652,7 +649,7 @@ def coeff_variation(probs, name):
     plt.ylim((0,1))
     plt.legend(fontsize=18)
     plt.tight_layout()        
-    plt.savefig(f'../figures/results/gpc/{name}_variation.png', dpi=300)
+    plt.savefig(f'../figures/results/smmc/{name}_variation.png', dpi=300)
 
     print('Coefficients of variation: ', cv)
 
@@ -689,39 +686,7 @@ def calc_mse(x, x_s, f, probs):
 
 
 
-
-""" Run complete program 
-
-def analyse_ex_paper():
-    Run GPC for viral example of Smoothed Model Checking Paper (Bortolussi)
-
-
-    # number of trajectories per input point
-    scale = 5 
-    # uncertain input parameter \theta that is varied
-    paramValueSet = np.linspace(0.5, 5, 20).reshape(-1,1) 
-    # statistical outputs of satisfaction 
-    paramValueOutput = np.array([1,1,0.8,1,1,1,1,0.6,0.6,0.6,0.8,0,0.8,0.2,0.6,0,0.4,0.4,0,0.2]).reshape(-1,1) 
-
-    # plot training data
-    plot_training(paramValueSet, paramValueOutput, 'paper_ex')
-    print("Actual data (number of runs satisfying property): ", (paramValueOutput * scale).reshape(1,-1))
-
-    # define default hyperparameters for kernels
-    params = {'var': 1/5,
-            'ell': 1,        
-            'ell_dim': [2, 5],
-            'var_b': 1,
-            'off': 1}
-
-    # perform EP
-    mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, kernel_rbf, params)
-    
-    # derive predictive probabilities and confidence intervals, save plot
-    testset = np.linspace(0, 5, 50).reshape(-1,1)
-    get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, 'paper_ex')
-"""
-
+""" Run complete program """
 
 
 def smmc_1dim(paramValueSet, paramValueOutput, name, scale, variance, ell, teststart, testend, testpoints, thresh = None):
@@ -772,46 +737,6 @@ def smmc_1dim(paramValueSet, paramValueOutput, name, scale, variance, ell, tests
 
 
 
-"""
-def analyse_stoch(thresh, v, l, scale, teststart, testend, testpoints):
-    
-    Analyze satisfaction probability for different population sizes to find out if function is robust
-    Input: histogram data for different population sizes n (simulated data - Stochnet)
-    Then compute GPC of satisfaction probabilty
-    Args:
-        t: threshold for "min. t bees are alive after experiment"
-        v: variance of kernel
-        l: lengthscale of kernel
-    Returns:
-        p: predictive probabilities
-
-    
-
-    #scale = 1000
-    thresh
-    paramValueSet, paramValueOutput = read_stochnet(thresh, scale)
-    plot_training(paramValueSet, paramValueOutput, f'bees_stochnet_{round(thresh, 2)}')
-
-    # define default hyperparameters for kernels
-    # variance = max-min / 2 for output values (if this is 0, set to 1) -> das noch scaled?
-    # lengthscale = max - min / 10 for input values
-    params = {'var': v,
-            'ell': l,        
-            'ell_dim': [2, 5],
-            'var_b': 1,
-            'off': 1}
-   
-    mu_tilde, invC = perform_ep(paramValueSet, paramValueOutput, scale, kernel_rbf, params)
-
-    # derive predictive probabilities and confidence intervals, save plot
-    testset = np.linspace(teststart, testend, testpoints).reshape(-1,1)
-    p = get_posterior(paramValueSet, testset, paramValueOutput, mu_tilde, invC, kernel_rbf, params, f'bees_stochnet_{round(thresh, 2)}', thresh)
-
-    return p
-"""
-
-
-# TODO: noch anpassen!
 def analyse_stoch2(thresh, v, l, scale):
     """ 
     For 2 dimensions -> vary N and one of the rates k
@@ -822,22 +747,18 @@ def analyse_stoch2(thresh, v, l, scale):
         t: threshold for "min. t bees are alive after experiment"
         v: variance of kernel
         l: lengthscale of kernel
+        scale: number of observations per input points
     Returns:
         p: predictive probabilities
 
     """
 
-    #scale = 1000
-    #thresh = t
     paramValueSet, paramValueOutput = read_stochnet2(thresh, scale)
     plot_training(paramValueSet, paramValueOutput,  f'bees_stochnet2_{round(thresh, 4)}')
-
     
     # define default hyperparameters for kernels
     # variance = max-min / 2 for output values (if this is 0, set to 1)
     # lengthscale = max - min / 10 for input values
-
-    
     params = {'var': v,
             'ell': 1,        
             'ell_dim': l,
@@ -848,7 +769,6 @@ def analyse_stoch2(thresh, v, l, scale):
 
     # derive predictive probabilities and confidence intervals, save plot
     # define test set for which posterior is derived
-
     Ns = 225  # number of testpoints
     ptest1 = [5, 100]  # range of uncertain input parameter p1
     ptest2 = [0, 0.1]  # range of uncertain input parameter p2
@@ -877,16 +797,15 @@ def analyse_prism_bee2(v, l, scale):
     Input: histogram data for different population sizes n (simulated data - Stochnet)
     Then compute GPC of satisfaction probabilty
     Args:
-        t: threshold for "min. t bees are alive after experiment"
         v: variance of kernel
         l: lengthscale of kernel
+        scale: number of observations per input point
     Returns:
         p: predictive probabilities
 
     """
     paramValueSet, paramValueOutput = read_bee_prism2()
     plot_training(paramValueSet, paramValueOutput,  'prism_bees2')
-    
     
     params = {'var': v,
             'ell': 1,        
@@ -898,7 +817,6 @@ def analyse_prism_bee2(v, l, scale):
 
     # derive predictive probabilities and confidence intervals, save plot
     # define test set for which posterior is derived
-
     Ns = 225  # number of testpoints
     ptest1 = [0, 1]  # range of uncertain input parameter p1
     ptest2 = [0, 1]  # range of uncertain input parameter p2
@@ -963,10 +881,10 @@ def main():
 
     #PRISM DTMC example
     #print('-----PRISM DTMC 1 DIM-----\n')
-    #x, f = read_bee_prism()
-    #smmc_1dim(x, f, 'prism_bees', 50, 0.05, 0.1, 0, 1, 50)
+    x, f = read_bee_prism()
+    smmc_1dim(x, f, 'prism_bees', 50, 0.05, 0.1, 0, 1, 50)
     #print('-----PRISM DTMC 2 DIM-----\n')
-    analyse_prism_bee2(0.05, [0.1,0.1], 50)
+    #analyse_prism_bee2(0.05, [0.1,0.1], 50)
 
 
 

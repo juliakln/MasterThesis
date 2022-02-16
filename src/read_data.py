@@ -1,3 +1,7 @@
+"""
+Read data files from simulated or experimental data
+"""
+
 import os
 import sys
 import numpy as np
@@ -84,16 +88,8 @@ def read_stochnet_hist(scale):
                 outputs_helper = []
                 for key in sorted(count_helper):
                     outputs_helper.append(count_helper[key])
-                # compute number of living bees 
-                #bees = np.array([nbees-int(i) for i in x_deadbees.split()])
-                #freq = np.array([int(i) for i in y_frequencies.split()])
                 
                 collect_data[nbees] = outputs_helper
-
-                #threshold = np.ceil(thresh * nbees)            
-                #satisfactions = np.sum(freq[bees >= threshold])
-                
-                #collect_data[nbees] = satisfactions
                 
     # population size n together with number of trajectories satisfying property, sort by n
     paramValueSet = []
@@ -103,7 +99,6 @@ def read_stochnet_hist(scale):
         outputs.append(collect_data[key])
 
     return np.array(colony_sizes), outputs
-
 
 
 

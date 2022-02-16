@@ -1,8 +1,8 @@
 """
 Gaussian Process Regression 
 
-... to predict the collective response (mean and variance of histogram)
-    for varying population sizes
+to predict the collective response (mean and variance of histogram)
+for varying population sizes
 
 """
 
@@ -14,7 +14,6 @@ warnings.filterwarnings("ignore")
 import matplotlib.pyplot as plt
 from matplotlib.offsetbox import AnchoredText
 import numpy as np
-from create_data import *
 from read_data import *
 from kernels import *
 from scipy.optimize import minimize
@@ -32,7 +31,6 @@ params = {'var':   0.5,
 # define all kernels
 all_kernels = [kernel_linear, kernel_rbf, kernel_periodic, kernel_add_p_r, kernel_add_r_l,
               kernel_mult_p_l, kernel_mult_p_r, kernel_mult_r_l]
-#all_kernels = [kernel_rbf, kernel_linear, kernel_periodic, kernel_mult_r_l, kernel_add_r_l]
 
 
 """ Helper Functions """
@@ -308,30 +306,6 @@ def predict(x, x_s, mu_s, pred):
 
 """ Run complete program """
 
-def analyse_single():
-    """ Import single values from random function and assume some noise
-    For all kernels:
-        derive posterior distribution with optimized hyperparameters
-        plot mean function, 5 samples, and uncertainty
-        find best model with LOOCV
-    """
-    [x_true,y_true], [x_data,y_data] = create_single_output()
-    x_s = x_true.reshape(-1,1)
-    #x_s = create_test_data(N_s = 100, start = 0, end = 10).reshape(-1,1)
-    x = x_data.reshape(-1,1)
-    y = y_data.reshape(-1,1)
-    noise = np.array([0.2])
-
-    print("\n--- Predict single values from random function ---")
-    min_mse, best_pred, best_kernel = 1000, 0, 0
-    for kernel in all_kernels:
-        posterior(x, x_s, y, kernel, params, noise, True, [1, 1, 1, 1, 1], True, 'single')
-        pred, mse = loocv(x, x_s, y, kernel, noise)
-        if mse < min_mse:
-            min_mse, best_pred, best_kernel = mse, pred, kernel
-    print(f'\nBest results for {best_kernel.__name__.split("_",1)[1]}:', best_pred, '\nMSE: ', min_mse)
-
-
 def analyse_hist(colony_sizes, outputs, teststart, testend, testpoints, samplesize, name, prediction = None):
     """ Analyze mean and variance of histograms individually, with colony_sizes describing the range of
     the histogram and outputs describing the probabilities
@@ -362,15 +336,14 @@ def analyse_hist(colony_sizes, outputs, teststart, testend, testpoints, samplesi
 
     # calculate variance of histograms as second output
     y_var = np.array([comp_sd(obs, np.arange(len(obs)), y_mean[i])**2 for (obs,i) in zip(outputs, np.arange(len(outputs)))])
-    # TODO: eigentlich ist noise hier asymmetric, weil confidence interval von variance asymmetric ist -> ich nehm hier aber erstmal nur obere
-    # grenze vom interval als margin & mach das später; für 95% confidence und df=n-1=99 kriegen wir chi_(1-alpha/2)^2 = 73.361
+    # TODO: noise is actually asymmetric, but here I just take a border to get larger margin
+    # for 95% confidence and df=n-1=99: chi_(1-alpha/2)^2 = 73.361
     noise_var = np.array([(((99 * var) / 73.361) - var) for var in y_var])
     # calculate mean percentage of survivors for each colony size
     y_surv = np.array([comp_surv(out, np.arange(len(out))) for out in outputs]).reshape(-1,1)
-    #noise_surv = np.array([comp_margin(t=1.962, sd=comp_sd(obs, np.arange(len(obs)), y_surv[i]), N=samplesize) / 1000 for (obs,i) \
-    #               in zip(outputs, np.arange(len(outputs)))])       # t for 95% with df=n-1=99
-    #noise_surv = np.repeat(1e-3, 28)
-    noise_surv = 1e-3
+    noise_surv = np.array([comp_margin(t=1.962, sd=comp_sd(obs, np.arange(len(obs)), y_surv[i]), N=samplesize) / 1000 for (obs,i) \
+                   in zip(outputs, np.arange(len(outputs)))])       # t for 95% with df=n-1=99
+    #noise_surv = 1e-3
 
     print("\n--- Predict mean & variance of histograms independently ---")
     min_mse_mean, best_pred_mean, best_kernel_mean = 1000, 0, 0
@@ -400,18 +373,8 @@ def analyse_hist(colony_sizes, outputs, teststart, testend, testpoints, samplesi
     print(f'\nSURV - Best results for {best_kernel_surv.__name__.split("_",1)[1]}:', best_pred_surv, '\nMSE: ', min_mse_surv)
     print(f'\nVAR - Best results for {best_kernel_var.__name__.split("_",1)[1]}:', best_pred_var, '\nMSE: ', min_mse_var)
     
-    # TODO: kernel_add_p_l matrix not positive definite
-
-    
 
 def main():
-   
-    #analyse_single()
-
-    # SYNTHETIC "BEE" DATA
-    # create normally distributed histogram data for colonies of size 2,3,4,5,7,10, N = sample size
-    #colony_sizes, outputs = create_hist_output(N=1000)
-    #analyse_hist(colony_sizes, outputs, samplesize=100, name="synth")
 
     """
     # MORGANE BEE DATA
@@ -425,7 +388,6 @@ def main():
     analyse_hist(colony_sizes_iaa, outputs_iaa, 0, 13, 60, 'beesMorgane1IAA', prediction = 7)
 
     # Dataset 2 - samples: 68,68,60,56,52,48
-    # erstmal mit mittlerer sample size (58) rechnen bis ichs angepasst hab? TODO: richtige sample size rechnen
     colony_sizes_2, outputs_2 = read_hist_exp("bees_morgane/hist2.txt")
     analyse_hist(colony_sizes_2, outputs_2, 0, 17, 58, 'beesMorgane2', prediction = 7)
 
@@ -433,7 +395,6 @@ def main():
 
     colony_sizes, outputs = read_stochnet_hist(100)
     analyse_hist(colony_sizes, outputs, 10, 150, 500, 100, 'stochnet')
-
 
 
 if __name__ == "__main__":
