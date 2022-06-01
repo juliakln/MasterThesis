@@ -221,3 +221,28 @@ ggplot(dataset, aes(stinging, frequency, label = stinging, width = 0.75)) +
   theme_bw() +
   theme(text = element_text(size = 20))
 dev.off()
+
+
+
+# create histogram like in Bees Paper
+dat <- read.table("dataset3_data.txt", sep=",", fill=TRUE)
+colony <- dat[1,]
+colony <- colony[!is.na(colony)]
+stinging <- dat[2:nrow(dat),]
+dataset1 <- data.frame(dataset = 1,
+                       group = c(rep("1 bee", 2), rep("2 bees", 3), 
+                                 rep("5 bees", 6), rep("10 bees", 11)),
+                       stinging = as.factor(c(0, 1, 0:2, 0:5, 0:10)),
+                       frequency = c(as.numeric(na.omit(as.vector(t(stinging))))))
+dataset1$group <- factor(dataset1$group, levels=c('1 bee', '2 bees', '5 bees', 
+                                                  '10 bees'))
+png("histDS3_grid.png", width = 980, height = 250)
+ggplot(dataset1, aes(stinging, frequency, label = stinging, width = 0.75)) + 
+  geom_bar(stat="identity", fill="gray70", color="black") + 
+  facet_grid(~group, scales="free", space = "free_x") +
+  labs(x = " ", y = "Frequency") +
+  theme_bw() +
+  ggtitle("Dataset B") +
+  theme(plot.title = element_text(hjust = 0.5),
+        text = element_text(size = 20))
+dev.off()

@@ -13,6 +13,8 @@ from sympy import rotations
 warnings.filterwarnings("ignore")
 import matplotlib.pyplot as plt
 from matplotlib.offsetbox import AnchoredText
+from matplotlib import rcParams
+rcParams.update({'figure.autolayout': True})
 import numpy as np
 from read_data import *
 from kernels import *
@@ -131,7 +133,7 @@ def posterior(x, x_s, f, kernel = kernel_rbf, params = params, noise = 1e-15, op
     if optimized:
         try:
             res = minimize(nll(x, f, kernel=kernel, noise=noise), initial_guess,
-                    bounds=((1e-2, None), (1e-2, 50), (1e-2, None), (1e-2, None), (1e-2, None)),
+                    bounds=((1e-7, None), (1e-7, None), (1e-7, None), (1e-7, None), (1, 10)),
                     method='L-BFGS-B')
             # take optimized parameters for deriving posterior distribution
             var_opt, ell_opt, var_b_opt, off_opt, per_opt = res.x
@@ -179,18 +181,19 @@ def posterior(x, x_s, f, kernel = kernel_rbf, params = params, noise = 1e-15, op
         at = AnchoredText(f'{kernel.__name__}', prop=dict(size=22), frameon=True, loc='upper left')
         at.patch.set_boxstyle("round,pad=0.,rounding_size=0.2")
         ax.add_artist(at)
-        ax.set_xlabel('$X_*$', fontsize=18)
-        ax.set_ylabel('$f_*$', fontsize=18, rotation = 0)
+        ax.set_xlabel('$X_*$', fontsize=22)
+        ax.set_ylabel('$f_*$', fontsize=22, rotation = 0)
         plt.xticks(fontsize=16)
         plt.yticks(fontsize=16)
         plt.tight_layout()        
-        fig.savefig(f'../figures/results/gpr/{name}_posterior_{kernel.__name__.split("_",1)[1]}.png', dpi = 300)
+        fig.savefig(f'../figures/results/gpr/{name}_posterior_{kernel.__name__.split("_",1)[1]}.png', bbox_inches = "tight")
+        # dpi = 350, 
 
     if prediction is not None:
         idx = np.absolute(x_s - prediction).argmin()
         p = mu_s.item(idx)
         ci = uncertainty.item(idx)
-        print(f'Prediction for x_* = {prediction}({name}, {kernel.__name__}): f_* = {p} +- {ci}')
+        #print(f'Prediction for x_* = {prediction}({name}, {kernel.__name__}): f_* = {p} +- {ci}')
 
 
     return mu_s, sigma_s
@@ -357,11 +360,11 @@ def analyse_hist(colony_sizes, outputs, teststart, testend, testpoints, samplesi
         if mse_mean < min_mse_mean:
             min_mse_mean, best_pred_mean, best_kernel_mean = mse_mean, pred_mean, kernel
         
-        print('surv:')
-        posterior(x, x_s, y_surv, kernel, params, noise_surv, True, [1, 10, 1, 1, 30], True, f'{name}_surv', prediction) 
-        pred_surv, mse_surv = loocv(x, x_s, y_surv, kernel, noise_surv)
-        if mse_surv < min_mse_surv:
-            min_mse_surv, best_pred_surv, best_kernel_surv = mse_surv, pred_surv, kernel
+        #print('surv:')
+        #posterior(x, x_s, y_surv, kernel, params, noise_surv, True, [1, 10, 1, 1, 30], True, f'{name}_surv', prediction) 
+        #pred_surv, mse_surv = loocv(x, x_s, y_surv, kernel, noise_surv)
+        #if mse_surv < min_mse_surv:
+        #    min_mse_surv, best_pred_surv, best_kernel_surv = mse_surv, pred_surv, kernel
         
         print('var:')
         posterior(x, x_s, y_var, kernel, params, noise_var, True, [1, 1, 1, 1, 1], True, f'{name}_var', prediction) 
@@ -370,31 +373,36 @@ def analyse_hist(colony_sizes, outputs, teststart, testend, testpoints, samplesi
             min_mse_var, best_pred_var, best_kernel_var = mse_var, pred_var, kernel
             
     print(f'\nMEAN - Best results for {best_kernel_mean.__name__.split("_",1)[1]}:', best_pred_mean, '\nMSE: ', min_mse_mean)
-    print(f'\nSURV - Best results for {best_kernel_surv.__name__.split("_",1)[1]}:', best_pred_surv, '\nMSE: ', min_mse_surv)
+    #print(f'\nSURV - Best results for {best_kernel_surv.__name__.split("_",1)[1]}:', best_pred_surv, '\nMSE: ', min_mse_surv)
     print(f'\nVAR - Best results for {best_kernel_var.__name__.split("_",1)[1]}:', best_pred_var, '\nMSE: ', min_mse_var)
     
 
 def main():
 
-    """
+    
     # MORGANE BEE DATA
     # Dataset 1 PO - 60 samples
     colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/hist1_PO.txt")
     analyse_hist(colony_sizes = colony_sizes_po, outputs = outputs_po, 
-                 teststart = 0, testend = 13, samplesize = 60, name = 'beesMorgane1PO', prediction = 7)
+                 teststart = 0, testend = 13, testpoints = 100, samplesize = 60, name = 'Experiment_A', prediction = 7)
+
+    colony_sizes_po, outputs_po = read_hist_exp("bees_morgane/dataset3_data.txt")
+    analyse_hist(colony_sizes = colony_sizes_po, outputs = outputs_po, 
+                 teststart = 0, testend = 13, testpoints = 100, samplesize = 40, name = 'Experiment_B', prediction = 7)
 
     # Dataset 1 IAA - 60 samples
     colony_sizes_iaa, outputs_iaa = read_hist_exp("bees_morgane/hist1_IAA.txt")
-    analyse_hist(colony_sizes_iaa, outputs_iaa, 0, 13, 60, 'beesMorgane1IAA', prediction = 7)
+    analyse_hist(colony_sizes_iaa, outputs_iaa, 0, 13, 100, 60, 'beesMorgane1IAA', prediction = 7)
 
+    
     # Dataset 2 - samples: 68,68,60,56,52,48
     colony_sizes_2, outputs_2 = read_hist_exp("bees_morgane/hist2.txt")
-    analyse_hist(colony_sizes_2, outputs_2, 0, 17, 58, 'beesMorgane2', prediction = 7)
+    analyse_hist(colony_sizes_2, outputs_2, 0, 17, 100, 58, 'Experiment_C', prediction = 7)
 
-    """
+    
 
-    colony_sizes, outputs = read_stochnet_hist(100)
-    analyse_hist(colony_sizes, outputs, 10, 150, 500, 100, 'stochnet')
+    #colony_sizes, outputs = read_stochnet_hist(100)
+    #analyse_hist(colony_sizes, outputs, 10, 150, 500, 100, 'stochnet')
 
 
 if __name__ == "__main__":
